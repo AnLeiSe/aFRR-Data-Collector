@@ -78,6 +78,7 @@
                   CanUserAddRows="False"
                   Margin="0,0,0,10">
             <DataGrid.Columns>
+                <DataGridTextColumn Header="Zone" Binding="{Binding Zone}" Width="110" />
                 <DataGridTextColumn Header="Day" Binding="{Binding Day}" Width="100" />
                 <DataGridTextColumn Header="Time" Binding="{Binding Time}" Width="80" />
                 <DataGridTextColumn Header="Total MW" Binding="{Binding TotalMw, StringFormat=N2}" Width="120" />

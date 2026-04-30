@@ -115,15 +115,18 @@ public partial class MainWindow : Window
     private static PlotModel CreateDailyVolumePlot(IEnumerable<DailyVolumePoint> points)
     {
         var model = CreateEmptyPlot();
-        var line = new LineSeries { Title = "Daily Volume", StrokeThickness = 2 };
-
-        foreach (var p in points)
+        foreach (var zoneGroup in points.GroupBy(x => x.Zone).OrderBy(g => g.Key))
         {
-            var dateTime = p.Day.ToDateTime(TimeOnly.MinValue);
-            line.Points.Add(new DataPoint(DateTimeAxis.ToDouble(dateTime), p.Volume));
-        }
+            var line = new LineSeries { Title = zoneGroup.Key, StrokeThickness = 2 };
 
-        model.Series.Add(line);
+            foreach (var p in zoneGroup.OrderBy(x => x.Day))
+            {
+                var dateTime = p.Day.ToDateTime(TimeOnly.MinValue);
+                line.Points.Add(new DataPoint(DateTimeAxis.ToDouble(dateTime), p.Volume));
+            }
+
+            model.Series.Add(line);
+        }
         return model;
     }
 }

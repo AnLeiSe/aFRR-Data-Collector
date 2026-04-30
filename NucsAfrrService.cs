@@ -56,7 +56,7 @@ public sealed class NucsAfrrService
             throw new ArgumentException("Choose at least one region.");
         }
 
-        var aggregated = new Dictionary<(DateOnly Day, string Time), List<(double Mw, double Price)>>();
+        var aggregated = new Dictionary<(string Zone, DateOnly Day, string Time), List<(double Mw, double Price)>>();
 
         for (var day = from; day <= to; day = day.AddDays(1))
         {
@@ -64,7 +64,7 @@ public sealed class NucsAfrrService
 
             foreach (var row in parsedRows)
             {
-                var key = (day, row.Time);
+                var key = (row.Zone, day, row.Time);
                 if (!aggregated.TryGetValue(key, out var rows))
                 {
                     rows = new List<(double Mw, double Price)>();
@@ -83,6 +83,7 @@ public sealed class NucsAfrrService
 
                 return new AfrrHourSummary
                 {
+                    Zone = kvp.Key.Zone,
                     Day = kvp.Key.Day,
                     Time = kvp.Key.Time,
                     TotalMw = mwSum,
@@ -91,7 +92,8 @@ public sealed class NucsAfrrService
                     PriceMax = prices.Length == 0 ? 0 : prices.Max()
                 };
             })
-            .OrderBy(x => x.Day)
+            .OrderBy(x => x.Zone)
+            .ThenBy(x => x.Day)
             .ThenBy(x => x.Time)
             .ToList();
     }
@@ -99,17 +101,19 @@ public sealed class NucsAfrrService
     public static IReadOnlyList<DailyVolumePoint> BuildDailyVolumeSeries(IEnumerable<AfrrHourSummary> hourly)
     {
         return hourly
-            .GroupBy(x => x.Day)
+            .GroupBy(x => new { x.Zone, x.Day })
             .Select(g => new DailyVolumePoint
             {
-                Day = g.Key,
+                Zone = g.Key.Zone,
+                Day = g.Key.Day,
                 Volume = g.Sum(x => x.Volume)
             })
-            .OrderBy(x => x.Day)
+            .OrderBy(x => x.Zone)
+            .ThenBy(x => x.Day)
             .ToList();
     }
 
-    private async Task<IReadOnlyList<(string Time, double Mw, double Price)>> FetchDataTableRowsAsync(
+    private async Task<IReadOnlyList<(string Zone, string Time, double Mw, double Price)>> FetchDataTableRowsAsync(
         DateOnly day,
         IReadOnlyCollection<RegionOption> regions,
         RegulationDirection direction,
@@ -216,9 +220,9 @@ public sealed class NucsAfrrService
         return new Uri(sb.ToString());
     }
 
-    private static IReadOnlyList<(string Time, double Mw, double Price)> ParseDataTableJson(string json)
+    private static IReadOnlyList<(string Zone, string Time, double Mw, double Price)> ParseDataTableJson(string json)
     {
-        var parsed = new List<(string Time, double Mw, double Price)>();
+        var parsed = new List<(string Zone, string Time, double Mw, double Price)>();
         using var doc = JsonDocument.Parse(json);
         if (!doc.RootElement.TryGetProperty("aaData", out var dataRows) || dataRows.ValueKind != JsonValueKind.Array)
         {
@@ -232,6 +236,7 @@ public sealed class NucsAfrrService
                 continue;
             }
 
+            var zone = Clean(row[0].ToString());
             var priceText = Clean(row[2].ToString());
             var price = TryParseNumber(priceText);
             if (!price.HasValue)
@@ -249,7 +254,7 @@ public sealed class NucsAfrrService
                 }
 
                 var time = $"{hour - 1:00}:00";
-                parsed.Add((time, mw, price.Value));
+                parsed.Add((zone, time, mw, price.Value));
             }
         }
 
