@@ -47,11 +47,17 @@ public sealed class NucsAfrrService
 
         for (var day = from; day <= to; day = day.AddDays(1))
         {
-            var fetchResult = await FetchPageHtmlAsync(day, regions, direction, cancellationToken);
+            var fetchResult = await FetchPageHtmlAsync(day, regions, direction, includeAtch: false, cancellationToken);
             var parsedRows = ParseRows(fetchResult.Html);
             if (parsedRows.Count == 0)
             {
-                throw BuildNoRowsException(day, fetchResult.Url, fetchResult.Html);
+                var atchFetchResult = await FetchPageHtmlAsync(day, regions, direction, includeAtch: true, cancellationToken);
+                parsedRows = ParseRows(atchFetchResult.Html);
+
+                if (parsedRows.Count == 0)
+                {
+                    throw BuildNoRowsException(day, fetchResult.Url, fetchResult.Html, atchFetchResult.Url, atchFetchResult.Html);
+                }
             }
 
             foreach (var row in parsedRows)
@@ -105,9 +111,10 @@ public sealed class NucsAfrrService
         DateOnly day,
         IReadOnlyCollection<RegionOption> regions,
         RegulationDirection direction,
+        bool includeAtch,
         CancellationToken cancellationToken)
     {
-        var url = BuildUrl(day, regions, direction);
+        var url = BuildUrl(day, regions, direction, includeAtch);
         using var request = new HttpRequestMessage(HttpMethod.Get, url);
         request.Headers.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64)");
         using var response = await _httpClient.SendAsync(request, cancellationToken);
@@ -123,19 +130,22 @@ public sealed class NucsAfrrService
     }
 
 
-    private static InvalidOperationException BuildNoRowsException(DateOnly day, Uri requestUrl, string html)
+    private static InvalidOperationException BuildNoRowsException(DateOnly day, Uri requestUrl, string html, Uri secondRequestUrl, string secondHtml)
     {
         var tableRowCount = Regex.Matches(html, "<tr", RegexOptions.IgnoreCase).Count;
         var htmlLength = html.Length;
         var preview = htmlLength > 220 ? html[..220] + "..." : html;
+        var secondTableRowCount = Regex.Matches(secondHtml, "<tr", RegexOptions.IgnoreCase).Count;
+        var secondHtmlLength = secondHtml.Length;
+        var secondPreview = secondHtmlLength > 220 ? secondHtml[..220] + "..." : secondHtml;
         var message =
             $"NUCS returned no parsable bid rows for {day:yyyy-MM-dd}. " +
-            $"URL: {requestUrl}. Returned HTML length: {htmlLength}, '<tr' count: {tableRowCount}. " +
-            $"Response preview: {preview}";
+            $"Attempt 1 URL (atch=false): {requestUrl}. Returned HTML length: {htmlLength}, '<tr' count: {tableRowCount}. Response preview: {preview} " +
+            $"Attempt 2 URL (atch=true): {secondRequestUrl}. Returned HTML length: {secondHtmlLength}, '<tr' count: {secondTableRowCount}. Response preview: {secondPreview}";
 
         return new InvalidOperationException(message);
     }
-    private static Uri BuildUrl(DateOnly day, IReadOnlyCollection<RegionOption> regions, RegulationDirection direction)
+    private static Uri BuildUrl(DateOnly day, IReadOnlyCollection<RegionOption> regions, RegulationDirection direction, bool includeAtch)
     {
         var sb = new StringBuilder(BaseUrl);
         sb.Append("?");
@@ -156,7 +166,7 @@ public sealed class NucsAfrrService
         Add("defaultValue", "false");
         Add("viewType", "TABLE");
         Add("areaType", "MBA");
-        Add("atch", "false");
+        Add("atch", includeAtch ? "true" : "false");
         Add("dateTime.dateTime", $"{day:dd.MM.yyyy} 00:00|CET|DAY");
         Add("areaSelectType", "USER_SELECTED");
 
