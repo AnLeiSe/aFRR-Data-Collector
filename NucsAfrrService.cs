@@ -61,18 +61,22 @@ public sealed class NucsAfrrService
 
         for (var day = from; day <= to; day = day.AddDays(1))
         {
-            var parsedRows = await FetchDataTableRowsAsync(day, regions, direction, cancellationToken);
-
-            foreach (var row in parsedRows)
+            foreach (var region in regions)
             {
-                var key = (row.Zone, day, row.Time);
-                if (!aggregated.TryGetValue(key, out var rows))
-                {
-                    rows = new List<(double Mw, double Price)>();
-                    aggregated[key] = rows;
-                }
+                var singleRegion = new[] { region };
+                var parsedRows = await FetchDataTableRowsAsync(day, singleRegion, direction, cancellationToken);
 
-                rows.Add((row.Mw, row.Price));
+                foreach (var row in parsedRows)
+                {
+                    var key = (row.Zone, day, row.Time);
+                    if (!aggregated.TryGetValue(key, out var rows))
+                    {
+                        rows = new List<(double Mw, double Price)>();
+                        aggregated[key] = rows;
+                    }
+
+                    rows.Add((row.Mw, row.Price));
+                }
             }
         }
 
