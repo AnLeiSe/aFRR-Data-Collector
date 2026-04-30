@@ -12,6 +12,7 @@ public sealed class NucsAfrrService
 {
     private const string BaseUrl = "https://www.nucs.net/balancing/acceptedBalancingCapacityBids/show";
     private const string DataTableUrl = "https://www.nucs.net/balancing/acceptedBalancingCapacityBids/getDataTableData/";
+    private const int DataTablePageSize = 500;
 
     private static readonly string[] ContractTypes =
     {
@@ -128,45 +129,68 @@ public sealed class NucsAfrrService
             showResponse.EnsureSuccessStatusCode();
         }
 
-        var postUrl = BuildDataTableUrl(day, regions, direction);
-        using var postRequest = new HttpRequestMessage(HttpMethod.Post, postUrl);
-        postRequest.Headers.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64)");
-        postRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-        postRequest.Headers.Add("X-Requested-With", "XMLHttpRequest");
-        postRequest.Headers.Referrer = showUrl;
-        postRequest.Content = new StringContent(BuildDataTableRequestBody(), Encoding.UTF8, "application/json");
+        var parsedRows = new List<(string Zone, string Time, double Mw, double Price)>();
+        var displayStart = 0;
 
-        using var postResponse = await _httpClient.SendAsync(postRequest, cancellationToken);
-        if (postResponse.StatusCode == HttpStatusCode.Forbidden)
+        while (true)
         {
-            throw new InvalidOperationException("NUCS denied access (HTTP 403) while requesting DataTable JSON.");
-        }
+            var postUrl = BuildDataTableUrl(day, regions, direction, DataTablePageSize, displayStart);
+            using var postRequest = new HttpRequestMessage(HttpMethod.Post, postUrl);
+            postRequest.Headers.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64)");
+            postRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            postRequest.Headers.Add("X-Requested-With", "XMLHttpRequest");
+            postRequest.Headers.Referrer = showUrl;
+            postRequest.Content = new StringContent(BuildDataTableRequestBody(DataTablePageSize, displayStart), Encoding.UTF8, "application/json");
 
-        postResponse.EnsureSuccessStatusCode();
-        var json = await postResponse.Content.ReadAsStringAsync(cancellationToken);
-        var parsedRows = ParseDataTableJson(json);
+            using var postResponse = await _httpClient.SendAsync(postRequest, cancellationToken);
+            if (postResponse.StatusCode == HttpStatusCode.Forbidden)
+            {
+                throw new InvalidOperationException("NUCS denied access (HTTP 403) while requesting DataTable JSON.");
+            }
+
+            postResponse.EnsureSuccessStatusCode();
+            var json = await postResponse.Content.ReadAsStringAsync(cancellationToken);
+            var page = ParseDataTableJsonPage(json);
+            parsedRows.AddRange(page.Rows);
+
+            if (page.Rows.Count == 0 || parsedRows.Count >= page.TotalDisplayRecords)
+            {
+                break;
+            }
+
+            displayStart += DataTablePageSize;
+        }
 
         if (parsedRows.Count == 0)
         {
-            var preview = json.Length > 350 ? json[..350] + "..." : json;
             throw new InvalidOperationException(
-                $"NUCS DataTable returned no parsable rows for {day:yyyy-MM-dd}. URL: {postUrl}. JSON length: {json.Length}. Preview: {preview}");
+                $"NUCS DataTable returned no parsable rows for {day:yyyy-MM-dd}. URL: {showUrl}");
         }
 
         return parsedRows;
     }
 
-    private static string BuildDataTableRequestBody()
-        => """
-           {"sEcho":1,"iColumns":28,"sColumns":"bidding_zone,direction,price_offered,first-hour,second-hour,third-hour,fourth-hour,fifth-hour,sixth-hour,seventh-hour,eight-hour,ninth-hour,tenth-hour,eleventh-hour,twelfth-hour,thirteenth-hour,fourteenth-hour,fifteenth-hour,sixteenth-hour,seventeenth-hour,eighteenth-hour,nineteenth-hour,twentieth-hour,twenty-first-hour,twenty-second-hour,twenty-third-hour,twenty-fourth-hour,reference_id","iDisplayStart":0,"iDisplayLength":1000,"amDataProp":[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27]}
-           """;
+    private static string BuildDataTableRequestBody(int displayLength, int displayStart)
+    {
+        var payload = new
+        {
+            sEcho = 1,
+            iColumns = 28,
+            sColumns = "bidding_zone,direction,price_offered,first-hour,second-hour,third-hour,fourth-hour,fifth-hour,sixth-hour,seventh-hour,eight-hour,ninth-hour,tenth-hour,eleventh-hour,twelfth-hour,thirteenth-hour,fourteenth-hour,fifteenth-hour,sixteenth-hour,seventeenth-hour,eighteenth-hour,nineteenth-hour,twentieth-hour,twenty-first-hour,twenty-second-hour,twenty-third-hour,twenty-fourth-hour,reference_id",
+            iDisplayStart = displayStart,
+            iDisplayLength = displayLength,
+            amDataProp = Enumerable.Range(0, 28).ToArray()
+        };
 
-    private static Uri BuildDataTableUrl(DateOnly day, IReadOnlyCollection<RegionOption> regions, RegulationDirection direction)
-        => BuildUrlCore(day, regions, direction, includeAtch: false, DataTableUrl, 1000);
+        return JsonSerializer.Serialize(payload);
+    }
+
+    private static Uri BuildDataTableUrl(DateOnly day, IReadOnlyCollection<RegionOption> regions, RegulationDirection direction, int pageLength, int pageStart)
+        => BuildUrlCore(day, regions, direction, includeAtch: false, DataTableUrl, pageLength, pageStart);
     private static Uri BuildUrl(DateOnly day, IReadOnlyCollection<RegionOption> regions, RegulationDirection direction, bool includeAtch)
-        => BuildUrlCore(day, regions, direction, includeAtch, BaseUrl, -1);
+        => BuildUrlCore(day, regions, direction, includeAtch, BaseUrl, -1, 0);
 
-    private static Uri BuildUrlCore(DateOnly day, IReadOnlyCollection<RegionOption> regions, RegulationDirection direction, bool includeAtch, string baseUrl, int pageLength)
+    private static Uri BuildUrlCore(DateOnly day, IReadOnlyCollection<RegionOption> regions, RegulationDirection direction, bool includeAtch, string baseUrl, int pageLength, int pageStart)
     {
         var sb = new StringBuilder(baseUrl);
         sb.Append("?");
@@ -215,18 +239,23 @@ public sealed class NucsAfrrService
         Add("balancingTypes", "SECONDARY");
         Add("energyDirection.values", direction == RegulationDirection.Up ? "UP" : "DOWN");
         Add("dv-datatable_length", pageLength.ToString(CultureInfo.InvariantCulture));
-        Add("dv-datatable_start", "0");
+        Add("dv-datatable_start", pageStart.ToString(CultureInfo.InvariantCulture));
 
         return new Uri(sb.ToString());
     }
 
-    private static IReadOnlyList<(string Zone, string Time, double Mw, double Price)> ParseDataTableJson(string json)
+    private static (IReadOnlyList<(string Zone, string Time, double Mw, double Price)> Rows, int TotalDisplayRecords) ParseDataTableJsonPage(string json)
     {
         var parsed = new List<(string Zone, string Time, double Mw, double Price)>();
         using var doc = JsonDocument.Parse(json);
+        var totalDisplay = doc.RootElement.TryGetProperty("iTotalDisplayRecords", out var totalElement)
+            && totalElement.TryGetInt32(out var totalValue)
+            ? totalValue
+            : int.MaxValue;
+
         if (!doc.RootElement.TryGetProperty("aaData", out var dataRows) || dataRows.ValueKind != JsonValueKind.Array)
         {
-            return parsed;
+            return (parsed, totalDisplay);
         }
 
         foreach (var row in dataRows.EnumerateArray())
@@ -258,7 +287,7 @@ public sealed class NucsAfrrService
             }
         }
 
-        return parsed;
+        return (parsed, totalDisplay);
     }
 
     private static string Clean(string input)

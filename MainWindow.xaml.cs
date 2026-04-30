@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.Windows;
 using OxyPlot;
 using OxyPlot.Axes;
+using OxyPlot.Legends;
 using OxyPlot.Series;
 
 namespace AfrrCollector;
@@ -106,7 +107,8 @@ public partial class MainWindow : Window
 
     private static PlotModel CreateEmptyPlot()
     {
-        var model = new PlotModel { Title = "Daily traded volume (Total MW * Price Avg)" };
+        var model = new PlotModel { Title = "Daily traded volume (Total MW * Price Avg)", IsLegendVisible = true };
+        model.Legends.Add(new Legend { LegendTitle = "Zone colors", LegendPosition = LegendPosition.TopRight });
         model.Axes.Add(new DateTimeAxis { Position = AxisPosition.Bottom, StringFormat = "yyyy-MM-dd", Angle = 30 });
         model.Axes.Add(new LinearAxis { Position = AxisPosition.Left, Title = "Volume" });
         return model;
