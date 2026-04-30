@@ -72,6 +72,7 @@ public partial class MainWindow : Window
 
             FetchButton.IsEnabled = false;
             StatusText.Text = "Fetching data from NUCS...";
+            ErrorMessageTextBox.Text = string.Empty;
 
             var hourly = await _service.FetchHourlySummariesAsync(
                 DateOnly.FromDateTime(from.Value),
@@ -89,10 +90,12 @@ public partial class MainWindow : Window
             DailyVolumePlot.Model = CreateDailyVolumePlot(daily);
 
             StatusText.Text = $"Done. {hourly.Count} hourly rows across {daily.Count} day(s).";
+            ErrorMessageTextBox.Text = string.Empty;
         }
         catch (Exception ex)
         {
             StatusText.Text = "Failed.";
+            ErrorMessageTextBox.Text = ex.ToString();
             MessageBox.Show(ex.Message, "Fetch error", MessageBoxButton.OK, MessageBoxImage.Error);
         }
         finally
