@@ -4,6 +4,7 @@ using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace AfrrCollector;
 
@@ -255,7 +256,14 @@ public sealed class NucsAfrrService
         return parsed;
     }
 
-    private static string Clean(string input) => WebUtility.HtmlDecode(input).Replace("\u00A0", " ").Trim();
+    private static string Clean(string input)
+    {
+        var normalized = input.Replace("\\/", "/");
+        normalized = WebUtility.HtmlDecode(normalized);
+        normalized = Regex.Replace(normalized, "<[^>]+>", string.Empty);
+        normalized = normalized.Replace("\u00A0", " ");
+        return normalized.Trim();
+    }
 
     private static double? TryParseNumber(string text)
     {
