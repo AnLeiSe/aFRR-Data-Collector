@@ -1,15 +1,16 @@
 using System.Globalization;
 using System.Net;
 using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Text;
-using System.Text.RegularExpressions;
-using HtmlAgilityPack;
+using System.Text.Json;
 
 namespace AfrrCollector;
 
 public sealed class NucsAfrrService
 {
     private const string BaseUrl = "https://www.nucs.net/balancing/acceptedBalancingCapacityBids/show";
+    private const string DataTableUrl = "https://www.nucs.net/balancing/acceptedBalancingCapacityBids/getDataTableData/";
 
     private static readonly string[] ContractTypes =
     {
@@ -23,7 +24,18 @@ public sealed class NucsAfrrService
 
     public NucsAfrrService(HttpClient? httpClient = null)
     {
-        _httpClient = httpClient ?? new HttpClient();
+        if (httpClient is not null)
+        {
+            _httpClient = httpClient;
+            return;
+        }
+
+        var handler = new HttpClientHandler
+        {
+            CookieContainer = new CookieContainer(),
+            AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate | DecompressionMethods.Brotli
+        };
+        _httpClient = new HttpClient(handler);
     }
 
     public async Task<IReadOnlyList<AfrrHourSummary>> FetchHourlySummariesAsync(
@@ -47,18 +59,7 @@ public sealed class NucsAfrrService
 
         for (var day = from; day <= to; day = day.AddDays(1))
         {
-            var fetchResult = await FetchPageHtmlAsync(day, regions, direction, includeAtch: false, cancellationToken);
-            var parsedRows = ParseRows(fetchResult.Html);
-            if (parsedRows.Count == 0)
-            {
-                var atchFetchResult = await FetchPageHtmlAsync(day, regions, direction, includeAtch: true, cancellationToken);
-                parsedRows = ParseRows(atchFetchResult.Html);
-
-                if (parsedRows.Count == 0)
-                {
-                    throw BuildNoRowsException(day, fetchResult.Url, fetchResult.Html, atchFetchResult.Url, atchFetchResult.Html);
-                }
-            }
+            var parsedRows = await FetchDataTableRowsAsync(day, regions, direction, cancellationToken);
 
             foreach (var row in parsedRows)
             {
@@ -107,47 +108,62 @@ public sealed class NucsAfrrService
             .ToList();
     }
 
-    private async Task<(Uri Url, string Html)> FetchPageHtmlAsync(
+    private async Task<IReadOnlyList<(string Time, double Mw, double Price)>> FetchDataTableRowsAsync(
         DateOnly day,
         IReadOnlyCollection<RegionOption> regions,
         RegulationDirection direction,
-        bool includeAtch,
         CancellationToken cancellationToken)
     {
-        var url = BuildUrl(day, regions, direction, includeAtch);
-        using var request = new HttpRequestMessage(HttpMethod.Get, url);
-        request.Headers.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64)");
-        using var response = await _httpClient.SendAsync(request, cancellationToken);
-
-        if (response.StatusCode == HttpStatusCode.Forbidden)
+        // Prime session/cookies like browser flow.
+        var showUrl = BuildUrl(day, regions, direction, includeAtch: false);
+        using (var showRequest = new HttpRequestMessage(HttpMethod.Get, showUrl))
         {
-            throw new InvalidOperationException("NUCS denied access (HTTP 403). Try again later.");
+            showRequest.Headers.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64)");
+            using var showResponse = await _httpClient.SendAsync(showRequest, cancellationToken);
+            showResponse.EnsureSuccessStatusCode();
         }
 
-        response.EnsureSuccessStatusCode();
-        var html = await response.Content.ReadAsStringAsync(cancellationToken);
-        return (url, html);
+        var postUrl = BuildDataTableUrl(day, regions, direction);
+        using var postRequest = new HttpRequestMessage(HttpMethod.Post, postUrl);
+        postRequest.Headers.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64)");
+        postRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+        postRequest.Headers.Add("X-Requested-With", "XMLHttpRequest");
+        postRequest.Headers.Referrer = showUrl;
+        postRequest.Content = new StringContent(BuildDataTableRequestBody(), Encoding.UTF8, "application/json");
+
+        using var postResponse = await _httpClient.SendAsync(postRequest, cancellationToken);
+        if (postResponse.StatusCode == HttpStatusCode.Forbidden)
+        {
+            throw new InvalidOperationException("NUCS denied access (HTTP 403) while requesting DataTable JSON.");
+        }
+
+        postResponse.EnsureSuccessStatusCode();
+        var json = await postResponse.Content.ReadAsStringAsync(cancellationToken);
+        var parsedRows = ParseDataTableJson(json);
+
+        if (parsedRows.Count == 0)
+        {
+            var preview = json.Length > 350 ? json[..350] + "..." : json;
+            throw new InvalidOperationException(
+                $"NUCS DataTable returned no parsable rows for {day:yyyy-MM-dd}. URL: {postUrl}. JSON length: {json.Length}. Preview: {preview}");
+        }
+
+        return parsedRows;
     }
 
+    private static string BuildDataTableRequestBody()
+        => """
+           {"sEcho":1,"iColumns":28,"sColumns":"bidding_zone,direction,price_offered,first-hour,second-hour,third-hour,fourth-hour,fifth-hour,sixth-hour,seventh-hour,eight-hour,ninth-hour,tenth-hour,eleventh-hour,twelfth-hour,thirteenth-hour,fourteenth-hour,fifteenth-hour,sixteenth-hour,seventeenth-hour,eighteenth-hour,nineteenth-hour,twentieth-hour,twenty-first-hour,twenty-second-hour,twenty-third-hour,twenty-fourth-hour,reference_id","iDisplayStart":0,"iDisplayLength":1000,"amDataProp":[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27]}
+           """;
 
-    private static InvalidOperationException BuildNoRowsException(DateOnly day, Uri requestUrl, string html, Uri secondRequestUrl, string secondHtml)
-    {
-        var tableRowCount = Regex.Matches(html, "<tr", RegexOptions.IgnoreCase).Count;
-        var htmlLength = html.Length;
-        var preview = htmlLength > 220 ? html[..220] + "..." : html;
-        var secondTableRowCount = Regex.Matches(secondHtml, "<tr", RegexOptions.IgnoreCase).Count;
-        var secondHtmlLength = secondHtml.Length;
-        var secondPreview = secondHtmlLength > 220 ? secondHtml[..220] + "..." : secondHtml;
-        var message =
-            $"NUCS returned no parsable bid rows for {day:yyyy-MM-dd}. " +
-            $"Attempt 1 URL (atch=false): {requestUrl}. Returned HTML length: {htmlLength}, '<tr' count: {tableRowCount}. Response preview: {preview} " +
-            $"Attempt 2 URL (atch=true): {secondRequestUrl}. Returned HTML length: {secondHtmlLength}, '<tr' count: {secondTableRowCount}. Response preview: {secondPreview}";
-
-        return new InvalidOperationException(message);
-    }
+    private static Uri BuildDataTableUrl(DateOnly day, IReadOnlyCollection<RegionOption> regions, RegulationDirection direction)
+        => BuildUrlCore(day, regions, direction, includeAtch: false, DataTableUrl, 1000);
     private static Uri BuildUrl(DateOnly day, IReadOnlyCollection<RegionOption> regions, RegulationDirection direction, bool includeAtch)
+        => BuildUrlCore(day, regions, direction, includeAtch, BaseUrl, -1);
+
+    private static Uri BuildUrlCore(DateOnly day, IReadOnlyCollection<RegionOption> regions, RegulationDirection direction, bool includeAtch, string baseUrl, int pageLength)
     {
-        var sb = new StringBuilder(BaseUrl);
+        var sb = new StringBuilder(baseUrl);
         sb.Append("?");
 
         void Add(string key, string value)
@@ -193,26 +209,29 @@ public sealed class NucsAfrrService
         Add("reserveType.values", "A51");
         Add("balancingTypes", "SECONDARY");
         Add("energyDirection.values", direction == RegulationDirection.Up ? "UP" : "DOWN");
-        Add("dv-datatable_length", "-1");
+        Add("dv-datatable_length", pageLength.ToString(CultureInfo.InvariantCulture));
         Add("dv-datatable_start", "0");
 
         return new Uri(sb.ToString());
     }
 
-    private static IReadOnlyList<(string Time, double Mw, double Price)> ParseRows(string html)
+    private static IReadOnlyList<(string Time, double Mw, double Price)> ParseDataTableJson(string json)
     {
-        var rows = FindDataRows(html);
         var parsed = new List<(string Time, double Mw, double Price)>();
-
-        foreach (var row in rows)
+        using var doc = JsonDocument.Parse(json);
+        if (!doc.RootElement.TryGetProperty("aaData", out var dataRows) || dataRows.ValueKind != JsonValueKind.Array)
         {
-            var cells = row.SelectNodes("./td");
-            if (cells is null || cells.Count < 28)
+            return parsed;
+        }
+
+        foreach (var row in dataRows.EnumerateArray())
+        {
+            if (row.ValueKind != JsonValueKind.Array || row.GetArrayLength() < 28)
             {
                 continue;
             }
 
-            var priceText = Clean(cells[2].InnerText);
+            var priceText = Clean(row[2].ToString());
             var price = TryParseNumber(priceText);
             if (!price.HasValue)
             {
@@ -221,7 +240,7 @@ public sealed class NucsAfrrService
 
             for (var hour = 1; hour <= 24; hour++)
             {
-                var mwText = Clean(cells[2 + hour].InnerText);
+                var mwText = Clean(row[2 + hour].ToString());
                 var mw = TryParseNumber(mwText) ?? 0;
                 if (mw <= 0)
                 {
@@ -234,66 +253,6 @@ public sealed class NucsAfrrService
         }
 
         return parsed;
-    }
-
-    private static IEnumerable<HtmlNode> FindDataRows(string html)
-    {
-        var doc = new HtmlDocument();
-        doc.LoadHtml(html);
-        var directRows = doc.DocumentNode.SelectNodes("//table[@id='dv-datatable']//tbody/tr");
-        if (directRows is { Count: > 0 })
-        {
-            return directRows.ToList();
-        }
-
-        foreach (var candidate in BuildHtmlCandidates(html))
-        {
-            var tableFragment = ExtractDvDatatableFragment(candidate);
-            if (string.IsNullOrWhiteSpace(tableFragment))
-            {
-                continue;
-            }
-
-            var fragmentDoc = new HtmlDocument();
-            fragmentDoc.LoadHtml(tableFragment);
-            var fragmentRows = fragmentDoc.DocumentNode.SelectNodes("//table[@id='dv-datatable']//tbody/tr");
-            if (fragmentRows is { Count: > 0 })
-            {
-                return fragmentRows.ToList();
-            }
-        }
-
-        return Enumerable.Empty<HtmlNode>();
-    }
-
-    private static IEnumerable<string> BuildHtmlCandidates(string html)
-    {
-        var candidates = new List<string>
-        {
-            html,
-            WebUtility.HtmlDecode(html)
-        };
-
-        try
-        {
-            candidates.Add(Regex.Unescape(html));
-        }
-        catch
-        {
-            // ignored
-        }
-
-        return candidates;
-    }
-
-    private static string? ExtractDvDatatableFragment(string html)
-    {
-        var tableMatch = Regex.Match(
-            html,
-            "<table[^>]*id=[\"']dv-datatable[\"'][^>]*>.*?</table>",
-            RegexOptions.IgnoreCase | RegexOptions.Singleline);
-
-        return tableMatch.Success ? tableMatch.Value : null;
     }
 
     private static string Clean(string input) => WebUtility.HtmlDecode(input).Replace("\u00A0", " ").Trim();
