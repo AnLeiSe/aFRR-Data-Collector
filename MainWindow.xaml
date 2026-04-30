@@ -9,9 +9,10 @@
     <Grid Margin="14">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
-            <RowDefinition Height="120" />
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
-            <RowDefinition Height="280" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
         <Border Grid.Row="0" BorderBrush="#DDD" BorderThickness="1" CornerRadius="6" Padding="10" Margin="0,0,0,10">
@@ -57,9 +58,8 @@
             </Grid>
         </Border>
 
-        <Border Grid.Row="1" BorderBrush="#DDD" BorderThickness="1" CornerRadius="6" Padding="8" Margin="0,0,0,10">
-            <StackPanel>
-                <TextBlock Text="Debug / Last error" FontWeight="Bold" Margin="0,0,0,6" />
+        <Expander Grid.Row="1" Header="Show debug / last error" IsExpanded="False" Margin="0,0,0,10">
+            <Border BorderBrush="#DDD" BorderThickness="1" CornerRadius="6" Padding="8">
                 <TextBox x:Name="ErrorMessageTextBox"
                          IsReadOnly="True"
                          AcceptsReturn="True"
@@ -67,9 +67,9 @@
                          VerticalScrollBarVisibility="Auto"
                          HorizontalScrollBarVisibility="Auto"
                          FontFamily="Consolas"
-                         Height="86" />
-            </StackPanel>
-        </Border>
+                         MinHeight="90" />
+            </Border>
+        </Expander>
 
         <DataGrid Grid.Row="2"
                   x:Name="ResultsDataGrid"
@@ -89,7 +89,15 @@
             </DataGrid.Columns>
         </DataGrid>
 
-        <Border Grid.Row="3" BorderBrush="#DDD" BorderThickness="1" CornerRadius="6" Padding="8">
+        <GridSplitter Grid.Row="3"
+                      Height="8"
+                      HorizontalAlignment="Stretch"
+                      VerticalAlignment="Center"
+                      Background="#DDD"
+                      ResizeDirection="Rows"
+                      ResizeBehavior="PreviousAndNext" />
+
+        <Border Grid.Row="4" BorderBrush="#DDD" BorderThickness="1" CornerRadius="6" Padding="8" Margin="0,10,0,0">
             <oxy:PlotView x:Name="DailyVolumePlot" />
         </Border>
     </Grid>

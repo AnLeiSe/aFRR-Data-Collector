@@ -90,7 +90,8 @@ public partial class MainWindow : Window
             var daily = NucsAfrrService.BuildDailyVolumeSeries(hourly);
             DailyVolumePlot.Model = CreateDailyVolumePlot(daily);
 
-            StatusText.Text = $"Done. {hourly.Count} hourly rows across {daily.Count} day(s).";
+            var dayCount = hourly.Select(x => x.Day).Distinct().Count();
+            StatusText.Text = $"Done. {hourly.Count} hourly rows across {dayCount} day(s).";
             ErrorMessageTextBox.Text = string.Empty;
         }
         catch (Exception ex)
@@ -109,7 +110,16 @@ public partial class MainWindow : Window
     {
         var model = new PlotModel { Title = "Daily traded volume (Total MW * Price Avg)", IsLegendVisible = true };
         model.Legends.Add(new Legend { LegendTitle = "Zone colors", LegendPosition = LegendPosition.TopRight });
-        model.Axes.Add(new DateTimeAxis { Position = AxisPosition.Bottom, StringFormat = "yyyy-MM-dd", Angle = 30 });
+        model.Axes.Add(new DateTimeAxis
+        {
+            Position = AxisPosition.Bottom,
+            StringFormat = "yyyy-MM-dd",
+            IntervalType = DateTimeIntervalType.Days,
+            MinorIntervalType = DateTimeIntervalType.Days,
+            MajorStep = 1,
+            MinorStep = 1,
+            Angle = 30
+        });
         model.Axes.Add(new LinearAxis { Position = AxisPosition.Left, Title = "Volume" });
         return model;
     }
