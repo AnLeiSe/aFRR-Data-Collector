@@ -47,8 +47,12 @@ public sealed class NucsAfrrService
 
         for (var day = from; day <= to; day = day.AddDays(1))
         {
-            var html = await FetchPageHtmlAsync(day, regions, direction, cancellationToken);
-            var parsedRows = ParseRows(html);
+            var fetchResult = await FetchPageHtmlAsync(day, regions, direction, cancellationToken);
+            var parsedRows = ParseRows(fetchResult.Html);
+            if (parsedRows.Count == 0)
+            {
+                throw BuildNoRowsException(day, fetchResult.Url, fetchResult.Html);
+            }
 
             foreach (var row in parsedRows)
             {
@@ -97,7 +101,7 @@ public sealed class NucsAfrrService
             .ToList();
     }
 
-    private async Task<string> FetchPageHtmlAsync(
+    private async Task<(Uri Url, string Html)> FetchPageHtmlAsync(
         DateOnly day,
         IReadOnlyCollection<RegionOption> regions,
         RegulationDirection direction,
@@ -114,9 +118,23 @@ public sealed class NucsAfrrService
         }
 
         response.EnsureSuccessStatusCode();
-        return await response.Content.ReadAsStringAsync(cancellationToken);
+        var html = await response.Content.ReadAsStringAsync(cancellationToken);
+        return (url, html);
     }
 
+
+    private static InvalidOperationException BuildNoRowsException(DateOnly day, Uri requestUrl, string html)
+    {
+        var tableRowCount = Regex.Matches(html, "<tr", RegexOptions.IgnoreCase).Count;
+        var htmlLength = html.Length;
+        var preview = htmlLength > 220 ? html[..220] + "..." : html;
+        var message =
+            $"NUCS returned no parsable bid rows for {day:yyyy-MM-dd}. " +
+            $"URL: {requestUrl}. Returned HTML length: {htmlLength}, '<tr' count: {tableRowCount}. " +
+            $"Response preview: {preview}";
+
+        return new InvalidOperationException(message);
+    }
     private static Uri BuildUrl(DateOnly day, IReadOnlyCollection<RegionOption> regions, RegulationDirection direction)
     {
         var sb = new StringBuilder(BaseUrl);
@@ -165,7 +183,8 @@ public sealed class NucsAfrrService
         Add("reserveType.values", "A51");
         Add("balancingTypes", "SECONDARY");
         Add("energyDirection.values", direction == RegulationDirection.Up ? "UP" : "DOWN");
-        Add("dv-datatable_length", "100");
+        Add("dv-datatable_length", "-1");
+        Add("dv-datatable_start", "0");
 
         return new Uri(sb.ToString());
     }
@@ -182,7 +201,7 @@ public sealed class NucsAfrrService
         foreach (var row in rows)
         {
             var cells = row.SelectNodes("./td");
-            if (cells is null || cells.Count() < 3)
+            if (cells is null || cells.Count < 3)
             {
                 continue;
             }
