@@ -201,11 +201,7 @@ public sealed class NucsAfrrService
 
     private static IReadOnlyList<(string Time, double Mw, double Price)> ParseRows(string html)
     {
-        var doc = new HtmlDocument();
-        doc.LoadHtml(html);
-
-        var rows = doc.DocumentNode.SelectNodes("//table[@id='dv-datatable']//tbody/tr")
-            ?? new HtmlNodeCollection(doc.DocumentNode);
+        var rows = FindDataRows(html);
         var parsed = new List<(string Time, double Mw, double Price)>();
 
         foreach (var row in rows)
@@ -238,6 +234,66 @@ public sealed class NucsAfrrService
         }
 
         return parsed;
+    }
+
+    private static IEnumerable<HtmlNode> FindDataRows(string html)
+    {
+        var doc = new HtmlDocument();
+        doc.LoadHtml(html);
+        var directRows = doc.DocumentNode.SelectNodes("//table[@id='dv-datatable']//tbody/tr");
+        if (directRows is { Count: > 0 })
+        {
+            return directRows.ToList();
+        }
+
+        foreach (var candidate in BuildHtmlCandidates(html))
+        {
+            var tableFragment = ExtractDvDatatableFragment(candidate);
+            if (string.IsNullOrWhiteSpace(tableFragment))
+            {
+                continue;
+            }
+
+            var fragmentDoc = new HtmlDocument();
+            fragmentDoc.LoadHtml(tableFragment);
+            var fragmentRows = fragmentDoc.DocumentNode.SelectNodes("//table[@id='dv-datatable']//tbody/tr");
+            if (fragmentRows is { Count: > 0 })
+            {
+                return fragmentRows.ToList();
+            }
+        }
+
+        return Enumerable.Empty<HtmlNode>();
+    }
+
+    private static IEnumerable<string> BuildHtmlCandidates(string html)
+    {
+        var candidates = new List<string>
+        {
+            html,
+            WebUtility.HtmlDecode(html)
+        };
+
+        try
+        {
+            candidates.Add(Regex.Unescape(html));
+        }
+        catch
+        {
+            // ignored
+        }
+
+        return candidates;
+    }
+
+    private static string? ExtractDvDatatableFragment(string html)
+    {
+        var tableMatch = Regex.Match(
+            html,
+            "<table[^>]*id=[\"']dv-datatable[\"'][^>]*>.*?</table>",
+            RegexOptions.IgnoreCase | RegexOptions.Singleline);
+
+        return tableMatch.Success ? tableMatch.Value : null;
     }
 
     private static string Clean(string input) => WebUtility.HtmlDecode(input).Replace("\u00A0", " ").Trim();
