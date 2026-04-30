@@ -194,59 +194,43 @@ public sealed class NucsAfrrService
         var doc = new HtmlDocument();
         doc.LoadHtml(html);
 
-        var rows = doc.DocumentNode.SelectNodes("//table//tbody/tr")
+        var rows = doc.DocumentNode.SelectNodes("//table[@id='dv-datatable']//tbody/tr")
             ?? new HtmlNodeCollection(doc.DocumentNode);
         var parsed = new List<(string Time, double Mw, double Price)>();
 
         foreach (var row in rows)
         {
             var cells = row.SelectNodes("./td");
-            if (cells is null || cells.Count < 3)
+            if (cells is null || cells.Count < 28)
             {
                 continue;
             }
 
-            var textCells = cells.Select(c => Clean(c.InnerText)).ToArray();
-            var time = ExtractTime(textCells);
-            if (time is null)
+            var priceText = Clean(cells[2].InnerText);
+            var price = TryParseNumber(priceText);
+            if (!price.HasValue)
             {
                 continue;
             }
 
-            var numbers = textCells
-                .Select(TryParseNumber)
-                .Where(x => x.HasValue)
-                .Select(x => x!.Value)
-                .ToArray();
-
-            if (numbers.Length < 2)
+            for (var hour = 1; hour <= 24; hour++)
             {
-                continue;
-            }
+                var mwText = Clean(cells[2 + hour].InnerText);
+                var mw = TryParseNumber(mwText) ?? 0;
+                if (mw <= 0)
+                {
+                    continue;
+                }
 
-            var price = numbers[^1];
-            var mw = numbers[^2];
-            parsed.Add((time, mw, price));
+                var time = $"{hour - 1:00}:00";
+                parsed.Add((time, mw, price.Value));
+            }
         }
 
         return parsed;
     }
 
     private static string Clean(string input) => WebUtility.HtmlDecode(input).Replace("\u00A0", " ").Trim();
-
-    private static string? ExtractTime(IEnumerable<string> cells)
-    {
-        foreach (var cell in cells)
-        {
-            var m = Regex.Match(cell, "\\b\\d{2}:\\d{2}\\b");
-            if (m.Success)
-            {
-                return m.Value;
-            }
-        }
-
-        return null;
-    }
 
     private static double? TryParseNumber(string text)
     {
