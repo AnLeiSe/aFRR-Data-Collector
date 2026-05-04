@@ -77,14 +77,72 @@ public partial class MainWindow : Window
             FetchButton.IsEnabled = false;
             StatusText.Text = "Fetching data from NUCS...";
             ErrorMessageTextBox.Text = string.Empty;
+            UpdateFetchProgress(0, 1);
 
-            var rawPoints = await _service.FetchRawPointsAsync(
-                DateOnly.FromDateTime(from.Value),
-                DateOnly.FromDateTime(to.Value),
-                selectedRegions,
-                direction.Value);
+            var fromDate = DateOnly.FromDateTime(from.Value);
+            var toDate = DateOnly.FromDateTime(to.Value);
+            var directionText = direction.Value == RegulationDirection.Up ? "UP" : "DOWN";
+            var selectedRegionCodes = selectedRegions.Select(x => x.Code).ToArray();
 
-            _database.SaveScrapedPoints(rawPoints);
+            var existingKeys = _database.LoadExistingDayRegionDirection(fromDate, toDate, selectedRegionCodes, directionText);
+
+            var missingDaysPerRegion = selectedRegions
+                .Select(region => new
+                {
+                    Region = region,
+                    MissingDays = Enumerable
+                        .Range(0, toDate.DayNumber - fromDate.DayNumber + 1)
+                        .Select(offset => fromDate.AddDays(offset))
+                        .Where(day => !existingKeys.Contains((day, region.Code, directionText)))
+                        .ToArray()
+                })
+                .Where(x => x.MissingDays.Length > 0)
+                .ToArray();
+
+            var fetchedRawPoints = new List<ScrapedDataPoint>();
+            var totalSlices = missingDaysPerRegion.Sum(x => x.MissingDays.Length);
+            var completedSlices = 0;
+            var skippedSlices = new List<string>();
+            UpdateFetchProgress(0, Math.Max(1, totalSlices));
+
+            foreach (var missing in missingDaysPerRegion)
+            {
+                foreach (var day in missing.MissingDays)
+                {
+                    IReadOnlyList<ScrapedDataPoint> rows;
+                    try
+                    {
+                        rows = await _service.FetchRawPointsAsync(
+                            day,
+                            day,
+                            new[] { missing.Region },
+                            direction.Value);
+                    }
+                    catch (InvalidOperationException ex) when (ex.Message.Contains("no parsable rows", StringComparison.OrdinalIgnoreCase))
+                    {
+                        skippedSlices.Add($"{missing.Region.Code} {day:yyyy-MM-dd}");
+                        completedSlices++;
+                        UpdateFetchProgress(completedSlices, Math.Max(1, totalSlices));
+                        continue;
+                    }
+
+                    fetchedRawPoints.AddRange(rows);
+                    completedSlices++;
+                    UpdateFetchProgress(completedSlices, Math.Max(1, totalSlices));
+                }
+            }
+
+            if (totalSlices == 0)
+            {
+                UpdateFetchProgress(1, 1);
+            }
+
+            if (fetchedRawPoints.Count > 0)
+            {
+                _database.SaveScrapedPoints(fetchedRawPoints);
+            }
+
+            var rawPoints = _database.LoadBySelection(fromDate, toDate, selectedRegionCodes, directionText);
             var hourly = NucsAfrrService.BuildHourlySummariesFromRaw(rawPoints);
 
             _rows.Clear();
@@ -97,8 +155,19 @@ public partial class MainWindow : Window
             DailyVolumePlot.Model = CreateDailyVolumePlot(daily);
 
             var dayCount = hourly.Select(x => x.Day).Distinct().Count();
-            StatusText.Text = $"Done. {hourly.Count} hourly rows across {dayCount} day(s).";
+            StatusText.Text = $"Done. {hourly.Count} hourly rows across {dayCount} day(s). Loaded {rawPoints.Count} raw rows from DB, fetched {fetchedRawPoints.Count} new rows.";
             ErrorMessageTextBox.Text = string.Empty;
+
+            if (skippedSlices.Count > 0)
+            {
+                var preview = string.Join(", ", skippedSlices.Take(8));
+                var extra = skippedSlices.Count > 8 ? $" (+{skippedSlices.Count - 8} more)" : string.Empty;
+                MessageBox.Show(
+                    $"Some day/region slices had no parseable NUCS data and were skipped: {preview}{extra}.",
+                    "Partial fetch completed",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+            }
         }
         catch (Exception ex)
         {
@@ -110,6 +179,14 @@ public partial class MainWindow : Window
         {
             FetchButton.IsEnabled = true;
         }
+    }
+
+    private void UpdateFetchProgress(int completedSlices, int totalSlices)
+    {
+        var safeTotal = Math.Max(1, totalSlices);
+        var percent = Math.Clamp((double)completedSlices / safeTotal * 100, 0, 100);
+        FetchProgressBar.Value = percent;
+        FetchProgressText.Text = $"{percent:0}% ({Math.Min(completedSlices, safeTotal)}/{safeTotal} day-region slices)";
     }
 
 
