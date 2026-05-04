@@ -28,6 +28,13 @@ hour19 REAL NOT NULL,hour20 REAL NOT NULL,hour21 REAL NOT NULL,hour22 REAL NOT N
 reference_id TEXT NOT NULL
 );";
         cmd.ExecuteNonQuery();
+
+        var indexCmd = connection.CreateCommand();
+        indexCmd.CommandText = @"
+CREATE INDEX IF NOT EXISTS idx_scraped_points_lookup
+ON scraped_points(day, region_code, bidding_zone, direction);
+";
+        indexCmd.ExecuteNonQuery();
     }
 
     public void SaveScrapedPoints(IEnumerable<ScrapedDataPoint> points)
@@ -115,6 +122,140 @@ VALUES($d,$r,$z,$dir,$p,$h1,$h2,$h3,$h4,$h5,$h6,$h7,$h8,$h9,$h10,$h11,$h12,$h13,
                 ReferenceId = GetText(r, 29)
             });
         }
+        return list;
+    }
+
+    public IReadOnlySet<(DateOnly Day, string RegionCode, string Direction)> LoadExistingDayRegionDirection(
+        DateOnly from,
+        DateOnly to,
+        IReadOnlyCollection<string> regionCodes,
+        string direction)
+    {
+        EnsureCreated();
+        var existing = new HashSet<(DateOnly Day, string RegionCode, string Direction)>();
+        if (regionCodes.Count == 0)
+        {
+            return existing;
+        }
+
+        using var c = new SqliteConnection(ConnectionString);
+        c.Open();
+        var cmd = c.CreateCommand();
+        var placeholders = new List<string>();
+        var i = 0;
+        foreach (var code in regionCodes)
+        {
+            var parameter = $"$r{i++}";
+            placeholders.Add(parameter);
+            cmd.Parameters.AddWithValue(parameter, code);
+        }
+
+        cmd.CommandText = $@"
+SELECT DISTINCT day, region_code, direction
+FROM scraped_points
+WHERE day >= $from AND day <= $to
+  AND direction = $direction
+  AND region_code IN ({string.Join(",", placeholders)});
+";
+        cmd.Parameters.AddWithValue("$from", from.ToString("yyyy-MM-dd"));
+        cmd.Parameters.AddWithValue("$to", to.ToString("yyyy-MM-dd"));
+        cmd.Parameters.AddWithValue("$direction", direction);
+
+        using var r = cmd.ExecuteReader();
+        while (r.Read())
+        {
+            var dayText = GetText(r, 0);
+            if (!DateOnly.TryParse(dayText, out var day))
+            {
+                continue;
+            }
+
+            existing.Add((day, GetText(r, 1), GetText(r, 2)));
+        }
+
+        return existing;
+    }
+
+    public IReadOnlyList<ScrapedDataPoint> LoadBySelection(
+        DateOnly from,
+        DateOnly to,
+        IReadOnlyCollection<string> regionCodes,
+        string direction)
+    {
+        EnsureCreated();
+        var list = new List<ScrapedDataPoint>();
+        if (regionCodes.Count == 0)
+        {
+            return list;
+        }
+
+        using var c = new SqliteConnection(ConnectionString);
+        c.Open();
+        var cmd = c.CreateCommand();
+        var placeholders = new List<string>();
+        var i = 0;
+        foreach (var code in regionCodes)
+        {
+            var parameter = $"$r{i++}";
+            placeholders.Add(parameter);
+            cmd.Parameters.AddWithValue(parameter, code);
+        }
+
+        cmd.CommandText = $@"
+SELECT day,region_code,bidding_zone,direction,price_offered,hour01,hour02,hour03,hour04,hour05,hour06,hour07,hour08,hour09,hour10,hour11,hour12,hour13,hour14,hour15,hour16,hour17,hour18,hour19,hour20,hour21,hour22,hour23,hour24,reference_id
+FROM scraped_points
+WHERE day >= $from AND day <= $to
+  AND direction = $direction
+  AND region_code IN ({string.Join(",", placeholders)})
+ORDER BY bidding_zone, day;";
+        cmd.Parameters.AddWithValue("$from", from.ToString("yyyy-MM-dd"));
+        cmd.Parameters.AddWithValue("$to", to.ToString("yyyy-MM-dd"));
+        cmd.Parameters.AddWithValue("$direction", direction);
+
+        using var r = cmd.ExecuteReader();
+        while (r.Read())
+        {
+            var dayText = GetText(r, 0);
+            if (!DateOnly.TryParse(dayText, out var day))
+            {
+                continue;
+            }
+
+            list.Add(new ScrapedDataPoint
+            {
+                Day = day,
+                RegionCode = GetText(r, 1),
+                BiddingZone = GetText(r, 2),
+                Direction = GetText(r, 3),
+                PriceOfferedEuroPerMw = GetReal(r, 4),
+                Hour01 = GetReal(r, 5),
+                Hour02 = GetReal(r, 6),
+                Hour03 = GetReal(r, 7),
+                Hour04 = GetReal(r, 8),
+                Hour05 = GetReal(r, 9),
+                Hour06 = GetReal(r, 10),
+                Hour07 = GetReal(r, 11),
+                Hour08 = GetReal(r, 12),
+                Hour09 = GetReal(r, 13),
+                Hour10 = GetReal(r, 14),
+                Hour11 = GetReal(r, 15),
+                Hour12 = GetReal(r, 16),
+                Hour13 = GetReal(r, 17),
+                Hour14 = GetReal(r, 18),
+                Hour15 = GetReal(r, 19),
+                Hour16 = GetReal(r, 20),
+                Hour17 = GetReal(r, 21),
+                Hour18 = GetReal(r, 22),
+                Hour19 = GetReal(r, 23),
+                Hour20 = GetReal(r, 24),
+                Hour21 = GetReal(r, 25),
+                Hour22 = GetReal(r, 26),
+                Hour23 = GetReal(r, 27),
+                Hour24 = GetReal(r, 28),
+                ReferenceId = GetText(r, 29)
+            });
+        }
+
         return list;
     }
 }
