@@ -102,17 +102,29 @@ public partial class MainWindow : Window
             var fetchedRawPoints = new List<ScrapedDataPoint>();
             var totalSlices = missingDaysPerRegion.Sum(x => x.MissingDays.Length);
             var completedSlices = 0;
+            var skippedSlices = new List<string>();
             UpdateFetchProgress(0, Math.Max(1, totalSlices));
 
             foreach (var missing in missingDaysPerRegion)
             {
                 foreach (var day in missing.MissingDays)
                 {
-                    var rows = await _service.FetchRawPointsAsync(
-                        day,
-                        day,
-                        new[] { missing.Region },
-                        direction.Value);
+                    IReadOnlyList<ScrapedDataPoint> rows;
+                    try
+                    {
+                        rows = await _service.FetchRawPointsAsync(
+                            day,
+                            day,
+                            new[] { missing.Region },
+                            direction.Value);
+                    }
+                    catch (InvalidOperationException ex) when (ex.Message.Contains("no parsable rows", StringComparison.OrdinalIgnoreCase))
+                    {
+                        skippedSlices.Add($"{missing.Region.Code} {day:yyyy-MM-dd}");
+                        completedSlices++;
+                        UpdateFetchProgress(completedSlices, Math.Max(1, totalSlices));
+                        continue;
+                    }
 
                     fetchedRawPoints.AddRange(rows);
                     completedSlices++;
@@ -145,6 +157,17 @@ public partial class MainWindow : Window
             var dayCount = hourly.Select(x => x.Day).Distinct().Count();
             StatusText.Text = $"Done. {hourly.Count} hourly rows across {dayCount} day(s). Loaded {rawPoints.Count} raw rows from DB, fetched {fetchedRawPoints.Count} new rows.";
             ErrorMessageTextBox.Text = string.Empty;
+
+            if (skippedSlices.Count > 0)
+            {
+                var preview = string.Join(", ", skippedSlices.Take(8));
+                var extra = skippedSlices.Count > 8 ? $" (+{skippedSlices.Count - 8} more)" : string.Empty;
+                MessageBox.Show(
+                    $"Some day/region slices had no parseable NUCS data and were skipped: {preview}{extra}.",
+                    "Partial fetch completed",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+            }
         }
         catch (Exception ex)
         {
