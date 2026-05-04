@@ -163,10 +163,7 @@ public partial class MainWindow : Window
                 var preview = string.Join(", ", skippedSlices.Take(8));
                 var extra = skippedSlices.Count > 8 ? $" (+{skippedSlices.Count - 8} more)" : string.Empty;
                 MessageBox.Show(
-                    $"Some day/region slices had no parseable NUCS data and were skipped: {preview}{extra}.",
-                    "Partial fetch completed",
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Information);
+                    $"Some days had no data provided by NUCs but the rest is being displayed below");
             }
         }
         catch (Exception ex)
