@@ -51,6 +51,20 @@ VALUES($d,$r,$z,$dir,$p,$h1,$h2,$h3,$h4,$h5,$h6,$h7,$h8,$h9,$h10,$h11,$h12,$h13,
         tx.Commit();
     }
 
+
+    private static string GetText(SqliteDataReader r, int ordinal)
+        => r.IsDBNull(ordinal) ? string.Empty : r.GetString(ordinal);
+
+    private static double GetReal(SqliteDataReader r, int ordinal)
+    {
+        if (r.IsDBNull(ordinal))
+        {
+            return 0;
+        }
+
+        return r.GetFieldType(ordinal) == typeof(double) ? r.GetDouble(ordinal) : double.TryParse(r.GetValue(ordinal).ToString(), out var v) ? v : 0;
+    }
+
     public IReadOnlyList<ScrapedDataPoint> LoadAll()
     {
         EnsureCreated();
@@ -61,7 +75,45 @@ VALUES($d,$r,$z,$dir,$p,$h1,$h2,$h3,$h4,$h5,$h6,$h7,$h8,$h9,$h10,$h11,$h12,$h13,
         using var r = cmd.ExecuteReader();
         while (r.Read())
         {
-            list.Add(new ScrapedDataPoint { Day = DateOnly.Parse(r.GetString(0)), RegionCode = r.GetString(1), BiddingZone = r.GetString(2), Direction = r.GetString(3), PriceOfferedEuroPerMw = r.GetDouble(4), Hour01 = r.GetDouble(5), Hour02 = r.GetDouble(6), Hour03 = r.GetDouble(7), Hour04 = r.GetDouble(8), Hour05 = r.GetDouble(9), Hour06 = r.GetDouble(10), Hour07 = r.GetDouble(11), Hour08 = r.GetDouble(12), Hour09 = r.GetDouble(13), Hour10 = r.GetDouble(14), Hour11 = r.GetDouble(15), Hour12 = r.GetDouble(16), Hour13 = r.GetDouble(17), Hour14 = r.GetDouble(18), Hour15 = r.GetDouble(19), Hour16 = r.GetDouble(20), Hour17 = r.GetDouble(21), Hour18 = r.GetDouble(22), Hour19 = r.GetDouble(23), Hour20 = r.GetDouble(24), Hour21 = r.GetDouble(25), Hour22 = r.GetDouble(26), Hour23 = r.GetDouble(27), Hour24 = r.GetDouble(28), ReferenceId = r.GetString(29) });
+            var dayText = GetText(r, 0);
+            if (!DateOnly.TryParse(dayText, out var day))
+            {
+                continue;
+            }
+
+            list.Add(new ScrapedDataPoint
+            {
+                Day = day,
+                RegionCode = GetText(r, 1),
+                BiddingZone = GetText(r, 2),
+                Direction = GetText(r, 3),
+                PriceOfferedEuroPerMw = GetReal(r, 4),
+                Hour01 = GetReal(r, 5),
+                Hour02 = GetReal(r, 6),
+                Hour03 = GetReal(r, 7),
+                Hour04 = GetReal(r, 8),
+                Hour05 = GetReal(r, 9),
+                Hour06 = GetReal(r, 10),
+                Hour07 = GetReal(r, 11),
+                Hour08 = GetReal(r, 12),
+                Hour09 = GetReal(r, 13),
+                Hour10 = GetReal(r, 14),
+                Hour11 = GetReal(r, 15),
+                Hour12 = GetReal(r, 16),
+                Hour13 = GetReal(r, 17),
+                Hour14 = GetReal(r, 18),
+                Hour15 = GetReal(r, 19),
+                Hour16 = GetReal(r, 20),
+                Hour17 = GetReal(r, 21),
+                Hour18 = GetReal(r, 22),
+                Hour19 = GetReal(r, 23),
+                Hour20 = GetReal(r, 24),
+                Hour21 = GetReal(r, 25),
+                Hour22 = GetReal(r, 26),
+                Hour23 = GetReal(r, 27),
+                Hour24 = GetReal(r, 28),
+                ReferenceId = GetText(r, 29)
+            });
         }
         return list;
     }
