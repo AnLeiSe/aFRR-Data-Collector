@@ -40,7 +40,7 @@ public sealed class NucsAfrrService
         _httpClient = new HttpClient(handler);
     }
 
-    public async Task<IReadOnlyList<AfrrHourSummary>> FetchHourlySummariesAsync(
+    public async Task<IReadOnlyList<ScrapedDataPoint>> FetchRawPointsAsync(
         DateOnly from,
         DateOnly to,
         IReadOnlyCollection<RegionOption> regions,
@@ -57,7 +57,7 @@ public sealed class NucsAfrrService
             throw new ArgumentException("Choose at least one region.");
         }
 
-        var aggregated = new Dictionary<(string Zone, DateOnly Day, string Time), List<(double Mw, double Price)>>();
+        var points = new List<ScrapedDataPoint>();
 
         for (var day = from; day <= to; day = day.AddDays(1))
         {
@@ -65,37 +65,34 @@ public sealed class NucsAfrrService
             {
                 var singleRegion = new[] { region };
                 var parsedRows = await FetchDataTableRowsAsync(day, singleRegion, direction, cancellationToken);
-
-                foreach (var row in parsedRows)
+                points.AddRange(parsedRows.Select(r =>
                 {
-                    var key = (row.Zone, day, row.Time);
-                    if (!aggregated.TryGetValue(key, out var rows))
-                    {
-                        rows = new List<(double Mw, double Price)>();
-                        aggregated[key] = rows;
-                    }
-
-                    rows.Add((row.Mw, row.Price));
-                }
+                    r.Day = day;
+                    r.RegionCode = region.Code;
+                    return r;
+                }));
             }
         }
 
-        return aggregated
-            .Select(kvp =>
-            {
-                var mwSum = kvp.Value.Sum(x => x.Mw);
-                var prices = kvp.Value.Select(x => x.Price).ToArray();
+        return points;
+    }
 
-                return new AfrrHourSummary
-                {
-                    Zone = kvp.Key.Zone,
-                    Day = kvp.Key.Day,
-                    Time = kvp.Key.Time,
-                    TotalMw = mwSum,
-                    PriceAvg = prices.Length == 0 ? 0 : prices.Average(),
-                    PriceMin = prices.Length == 0 ? 0 : prices.Min(),
-                    PriceMax = prices.Length == 0 ? 0 : prices.Max()
-                };
+
+
+    public static IReadOnlyList<AfrrHourSummary> BuildHourlySummariesFromRaw(IEnumerable<ScrapedDataPoint> rawPoints)
+    {
+        return rawPoints
+            .SelectMany(x => x.HourlyValues().Select(h => new { x.BiddingZone, x.Day, h.Time, h.Mw, x.PriceOfferedEuroPerMw }))
+            .GroupBy(x => new { x.BiddingZone, x.Day, x.Time })
+            .Select(g => new AfrrHourSummary
+            {
+                Zone = g.Key.BiddingZone,
+                Day = g.Key.Day,
+                Time = g.Key.Time,
+                TotalMw = g.Sum(x => x.Mw),
+                PriceAvg = g.Average(x => x.PriceOfferedEuroPerMw),
+                PriceMin = g.Min(x => x.PriceOfferedEuroPerMw),
+                PriceMax = g.Max(x => x.PriceOfferedEuroPerMw)
             })
             .OrderBy(x => x.Zone)
             .ThenBy(x => x.Day)
@@ -118,7 +115,7 @@ public sealed class NucsAfrrService
             .ToList();
     }
 
-    private async Task<IReadOnlyList<(string Zone, string Time, double Mw, double Price)>> FetchDataTableRowsAsync(
+    private async Task<IReadOnlyList<ScrapedDataPoint>> FetchDataTableRowsAsync(
         DateOnly day,
         IReadOnlyCollection<RegionOption> regions,
         RegulationDirection direction,
@@ -133,7 +130,7 @@ public sealed class NucsAfrrService
             showResponse.EnsureSuccessStatusCode();
         }
 
-        var parsedRows = new List<(string Zone, string Time, double Mw, double Price)>();
+        var parsedRows = new List<ScrapedDataPoint>();
         var displayStart = 0;
 
         while (true)
@@ -248,9 +245,9 @@ public sealed class NucsAfrrService
         return new Uri(sb.ToString());
     }
 
-    private static (IReadOnlyList<(string Zone, string Time, double Mw, double Price)> Rows, int TotalDisplayRecords) ParseDataTableJsonPage(string json)
+    private static (IReadOnlyList<ScrapedDataPoint> Rows, int TotalDisplayRecords) ParseDataTableJsonPage(string json)
     {
-        var parsed = new List<(string Zone, string Time, double Mw, double Price)>();
+        var parsed = new List<ScrapedDataPoint>();
         using var doc = JsonDocument.Parse(json);
         var totalDisplay = doc.RootElement.TryGetProperty("iTotalDisplayRecords", out var totalElement)
             && totalElement.TryGetInt32(out var totalValue)
@@ -269,26 +266,39 @@ public sealed class NucsAfrrService
                 continue;
             }
 
-            var zone = Clean(row[0].ToString());
-            var priceText = Clean(row[2].ToString());
-            var price = TryParseNumber(priceText);
-            if (!price.HasValue)
+            var point = new ScrapedDataPoint
             {
-                continue;
-            }
+                BiddingZone = Clean(row[0].ToString()),
+                Direction = Clean(row[1].ToString()),
+                PriceOfferedEuroPerMw = TryParseNumber(Clean(row[2].ToString())) ?? 0,
+                Hour01 = TryParseNumber(Clean(row[3].ToString())) ?? 0,
+                Hour02 = TryParseNumber(Clean(row[4].ToString())) ?? 0,
+                Hour03 = TryParseNumber(Clean(row[5].ToString())) ?? 0,
+                Hour04 = TryParseNumber(Clean(row[6].ToString())) ?? 0,
+                Hour05 = TryParseNumber(Clean(row[7].ToString())) ?? 0,
+                Hour06 = TryParseNumber(Clean(row[8].ToString())) ?? 0,
+                Hour07 = TryParseNumber(Clean(row[9].ToString())) ?? 0,
+                Hour08 = TryParseNumber(Clean(row[10].ToString())) ?? 0,
+                Hour09 = TryParseNumber(Clean(row[11].ToString())) ?? 0,
+                Hour10 = TryParseNumber(Clean(row[12].ToString())) ?? 0,
+                Hour11 = TryParseNumber(Clean(row[13].ToString())) ?? 0,
+                Hour12 = TryParseNumber(Clean(row[14].ToString())) ?? 0,
+                Hour13 = TryParseNumber(Clean(row[15].ToString())) ?? 0,
+                Hour14 = TryParseNumber(Clean(row[16].ToString())) ?? 0,
+                Hour15 = TryParseNumber(Clean(row[17].ToString())) ?? 0,
+                Hour16 = TryParseNumber(Clean(row[18].ToString())) ?? 0,
+                Hour17 = TryParseNumber(Clean(row[19].ToString())) ?? 0,
+                Hour18 = TryParseNumber(Clean(row[20].ToString())) ?? 0,
+                Hour19 = TryParseNumber(Clean(row[21].ToString())) ?? 0,
+                Hour20 = TryParseNumber(Clean(row[22].ToString())) ?? 0,
+                Hour21 = TryParseNumber(Clean(row[23].ToString())) ?? 0,
+                Hour22 = TryParseNumber(Clean(row[24].ToString())) ?? 0,
+                Hour23 = TryParseNumber(Clean(row[25].ToString())) ?? 0,
+                Hour24 = TryParseNumber(Clean(row[26].ToString())) ?? 0,
+                ReferenceId = Clean(row[27].ToString())
+            };
 
-            for (var hour = 1; hour <= 24; hour++)
-            {
-                var mwText = Clean(row[2 + hour].ToString());
-                var mw = TryParseNumber(mwText) ?? 0;
-                if (mw <= 0)
-                {
-                    continue;
-                }
-
-                var time = $"{hour - 1:00}:00";
-                parsed.Add((zone, time, mw, price.Value));
-            }
+            parsed.Add(point);
         }
 
         return (parsed, totalDisplay);

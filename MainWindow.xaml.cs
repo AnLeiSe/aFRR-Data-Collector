@@ -1,4 +1,6 @@
+using Microsoft.Win32;
 using System.Collections.ObjectModel;
+using System.IO;
 using System.Windows;
 using OxyPlot;
 using OxyPlot.Axes;
@@ -11,6 +13,7 @@ public partial class MainWindow : Window
 {
     private readonly NucsAfrrService _service = new();
     private readonly ObservableCollection<AfrrHourSummary> _rows = new();
+    private readonly DatabaseService _database = new(System.IO.Path.Combine(AppContext.BaseDirectory, "afrr-data.db"));
 
     private static readonly IReadOnlyList<RegionOption> Regions =
     new List<RegionOption>
@@ -75,11 +78,14 @@ public partial class MainWindow : Window
             StatusText.Text = "Fetching data from NUCS...";
             ErrorMessageTextBox.Text = string.Empty;
 
-            var hourly = await _service.FetchHourlySummariesAsync(
+            var rawPoints = await _service.FetchRawPointsAsync(
                 DateOnly.FromDateTime(from.Value),
                 DateOnly.FromDateTime(to.Value),
                 selectedRegions,
                 direction.Value);
+
+            _database.SaveScrapedPoints(rawPoints);
+            var hourly = NucsAfrrService.BuildHourlySummariesFromRaw(rawPoints);
 
             _rows.Clear();
             foreach (var row in hourly)
@@ -104,6 +110,54 @@ public partial class MainWindow : Window
         {
             FetchButton.IsEnabled = true;
         }
+    }
+
+
+    private void ExportDatabaseButton_OnClick(object sender, RoutedEventArgs e)
+    {
+        var dialog = new SaveFileDialog
+        {
+            Filter = "SQLite DB (*.db)|*.db|All files (*.*)|*.*",
+            FileName = "afrr-export.db"
+        };
+
+        if (dialog.ShowDialog() != true)
+        {
+            return;
+        }
+
+        _database.EnsureCreated();
+        var source = System.IO.Path.Combine(AppContext.BaseDirectory, "afrr-data.db");
+        File.Copy(source, dialog.FileName, overwrite: true);
+        StatusText.Text = $"Database exported: {dialog.FileName}";
+    }
+
+    private void ImportDatabaseButton_OnClick(object sender, RoutedEventArgs e)
+    {
+        var dialog = new OpenFileDialog
+        {
+            Filter = "SQLite DB (*.db)|*.db|All files (*.*)|*.*"
+        };
+
+        if (dialog.ShowDialog() != true)
+        {
+            return;
+        }
+
+        var target = System.IO.Path.Combine(AppContext.BaseDirectory, "afrr-data.db");
+        File.Copy(dialog.FileName, target, overwrite: true);
+
+        var imported = _database.LoadAll();
+        var hourly = NucsAfrrService.BuildHourlySummariesFromRaw(imported);
+
+        _rows.Clear();
+        foreach (var row in hourly)
+        {
+            _rows.Add(row);
+        }
+
+        DailyVolumePlot.Model = CreateDailyVolumePlot(NucsAfrrService.BuildDailyVolumeSeries(hourly));
+        StatusText.Text = $"Imported {imported.Count} raw rows from database.";
     }
 
     private static PlotModel CreateEmptyPlot()
