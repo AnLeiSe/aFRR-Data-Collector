@@ -5,7 +5,7 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:oxy="http://oxyplot.org/wpf"
         mc:Ignorable="d"
-        Title="aFRR Data Collector" Height="760" Width="1200">
+        Title="aFRR Data Collector" Height="760" Width="1200" MinWidth="900" MinHeight="620">
     <Grid Margin="14">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
@@ -16,56 +16,60 @@
         </Grid.RowDefinitions>
 
         <Border Grid.Row="0" BorderBrush="#DDD" BorderThickness="1" CornerRadius="6" Padding="10" Margin="0,0,0,10">
-            <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="280" />
-                    <ColumnDefinition Width="170" />
-                    <ColumnDefinition Width="170" />
-                    <ColumnDefinition Width="160" />
-                    <ColumnDefinition Width="150" />
-                    <ColumnDefinition Width="140" />
-                    <ColumnDefinition Width="140" />
-                    <ColumnDefinition Width="*" />
-                </Grid.ColumnDefinitions>
+            <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="280" />
+                        <ColumnDefinition Width="155" />
+                        <ColumnDefinition Width="155" />
+                        <ColumnDefinition Width="155" />
+                        <ColumnDefinition Width="*" MinWidth="200" />
+                        <ColumnDefinition Width="140" />
+                        <ColumnDefinition Width="140" />
+                        <ColumnDefinition Width="220" />
+                    </Grid.ColumnDefinitions>
 
-                <StackPanel Grid.Column="0">
+                    <StackPanel Grid.Column="0" Margin="0,0,10,0">
                     <TextBlock Text="Regions" FontWeight="Bold" Margin="0,0,0,6" />
                     <ListBox x:Name="RegionsListBox" SelectionMode="Multiple" Height="130" />
                 </StackPanel>
 
-                <StackPanel Grid.Column="1" Margin="10,0,0,0">
+                    <StackPanel Grid.Column="1" Margin="0,0,10,0">
                     <TextBlock Text="From" FontWeight="Bold" Margin="0,0,0,6" />
                     <DatePicker x:Name="FromDatePicker" />
                 </StackPanel>
 
-                <StackPanel Grid.Column="2" Margin="10,0,0,0">
+                    <StackPanel Grid.Column="2" Margin="0,0,10,0">
                     <TextBlock Text="To" FontWeight="Bold" Margin="0,0,0,6" />
                     <DatePicker x:Name="ToDatePicker" />
                 </StackPanel>
 
-                <StackPanel Grid.Column="3" Margin="10,0,0,0">
+                    <StackPanel Grid.Column="3" Margin="0,0,10,0">
                     <TextBlock Text="Direction" FontWeight="Bold" Margin="0,0,0,6" />
                     <ComboBox x:Name="DirectionComboBox" />
                 </StackPanel>
 
-                <StackPanel Grid.Column="4" Margin="10,0,0,0">
+                    <StackPanel Grid.Column="4" Margin="0,0,10,0">
                     <TextBlock Text="&quot;Rows/day&quot; hint" FontWeight="Bold" Margin="0,0,0,6" />
                     <TextBlock Text="NUCS URL currently uses 100 rows/day." TextWrapping="Wrap" Foreground="#666" />
                 </StackPanel>
 
-                <StackPanel Grid.Column="5" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="10,0,0,0">
+                    <StackPanel Grid.Column="5" VerticalAlignment="Bottom" Margin="0,0,10,0">
                     <Button x:Name="ExportDatabaseButton" Width="130" Height="32" Content="Export Database" Click="ExportDatabaseButton_OnClick" />
                 </StackPanel>
 
-                <StackPanel Grid.Column="6" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="10,0,0,0">
+                    <StackPanel Grid.Column="6" VerticalAlignment="Bottom" Margin="0,0,10,0">
                     <Button x:Name="ImportDatabaseButton" Width="130" Height="32" Content="Import Database" Click="ImportDatabaseButton_OnClick" />
                 </StackPanel>
 
-                <StackPanel Grid.Column="7" HorizontalAlignment="Right" VerticalAlignment="Bottom">
+                    <StackPanel Grid.Column="7" VerticalAlignment="Bottom" Margin="0,0,0,0">
                     <Button x:Name="FetchButton" Width="140" Height="32" Content="Fetch Data" Click="FetchButton_OnClick" />
                     <TextBlock x:Name="StatusText" Margin="0,8,0,0" Foreground="#666" Text="Ready." />
+                    <ProgressBar x:Name="FetchProgressBar" Height="10" Minimum="0" Maximum="100" Value="0" Margin="0,8,0,0" />
+                    <TextBlock x:Name="FetchProgressText" Margin="0,4,0,0" Foreground="#666" Text="0%" />
                 </StackPanel>
-            </Grid>
+                </Grid>
+            </ScrollViewer>
         </Border>
 
         <Expander Grid.Row="1" Header="Show debug / last error" IsExpanded="False" Margin="0,0,0,10">
