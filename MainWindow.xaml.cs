@@ -77,6 +77,7 @@ public partial class MainWindow : Window
             FetchButton.IsEnabled = false;
             StatusText.Text = "Fetching data from NUCS...";
             ErrorMessageTextBox.Text = string.Empty;
+            UpdateFetchProgress(0, 1);
 
             var fromDate = DateOnly.FromDateTime(from.Value);
             var toDate = DateOnly.FromDateTime(to.Value);
@@ -99,6 +100,10 @@ public partial class MainWindow : Window
                 .ToArray();
 
             var fetchedRawPoints = new List<ScrapedDataPoint>();
+            var totalSlices = missingDaysPerRegion.Sum(x => x.MissingDays.Length);
+            var completedSlices = 0;
+            UpdateFetchProgress(0, Math.Max(1, totalSlices));
+
             foreach (var missing in missingDaysPerRegion)
             {
                 foreach (var day in missing.MissingDays)
@@ -110,7 +115,14 @@ public partial class MainWindow : Window
                         direction.Value);
 
                     fetchedRawPoints.AddRange(rows);
+                    completedSlices++;
+                    UpdateFetchProgress(completedSlices, Math.Max(1, totalSlices));
                 }
+            }
+
+            if (totalSlices == 0)
+            {
+                UpdateFetchProgress(1, 1);
             }
 
             if (fetchedRawPoints.Count > 0)
@@ -144,6 +156,14 @@ public partial class MainWindow : Window
         {
             FetchButton.IsEnabled = true;
         }
+    }
+
+    private void UpdateFetchProgress(int completedSlices, int totalSlices)
+    {
+        var safeTotal = Math.Max(1, totalSlices);
+        var percent = Math.Clamp((double)completedSlices / safeTotal * 100, 0, 100);
+        FetchProgressBar.Value = percent;
+        FetchProgressText.Text = $"{percent:0}% ({Math.Min(completedSlices, safeTotal)}/{safeTotal} day-region slices)";
     }
 
 
