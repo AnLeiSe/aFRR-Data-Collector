@@ -28,13 +28,34 @@ hour19 REAL NOT NULL,hour20 REAL NOT NULL,hour21 REAL NOT NULL,hour22 REAL NOT N
 reference_id TEXT NOT NULL
 );";
         cmd.ExecuteNonQuery();
-
-        var indexCmd = connection.CreateCommand();
-        indexCmd.CommandText = @"
+        if (HasColumn(connection, "scraped_points", "day")
+            && HasColumn(connection, "scraped_points", "region_code")
+            && HasColumn(connection, "scraped_points", "bidding_zone")
+            && HasColumn(connection, "scraped_points", "direction"))
+        {
+            var indexCmd = connection.CreateCommand();
+            indexCmd.CommandText = @"
 CREATE INDEX IF NOT EXISTS idx_scraped_points_lookup
 ON scraped_points(day, region_code, bidding_zone, direction);
 ";
-        indexCmd.ExecuteNonQuery();
+            indexCmd.ExecuteNonQuery();
+        }
+    }
+
+    private static bool HasColumn(SqliteConnection connection, string tableName, string columnName)
+    {
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = $"PRAGMA table_info({tableName});";
+        using var r = cmd.ExecuteReader();
+        while (r.Read())
+        {
+            if (string.Equals(GetText(r, 1), columnName, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     public void SaveScrapedPoints(IEnumerable<ScrapedDataPoint> points)
@@ -151,11 +172,14 @@ VALUES($d,$r,$z,$dir,$p,$h1,$h2,$h3,$h4,$h5,$h6,$h7,$h8,$h9,$h10,$h11,$h12,$h13,
         }
 
         cmd.CommandText = $@"
-SELECT DISTINCT day, region_code, direction
+SELECT DISTINCT day, COALESCE(NULLIF(region_code, ''), bidding_zone) AS lookup_region, direction
 FROM scraped_points
 WHERE day >= $from AND day <= $to
-  AND direction = $direction
-  AND region_code IN ({string.Join(",", placeholders)});
+  AND UPPER(direction) = UPPER($direction)
+  AND (
+    region_code IN ({string.Join(",", placeholders)})
+    OR bidding_zone IN ({string.Join(",", placeholders)})
+  );
 ";
         cmd.Parameters.AddWithValue("$from", from.ToString("yyyy-MM-dd"));
         cmd.Parameters.AddWithValue("$to", to.ToString("yyyy-MM-dd"));
@@ -170,7 +194,7 @@ WHERE day >= $from AND day <= $to
                 continue;
             }
 
-            existing.Add((day, GetText(r, 1), GetText(r, 2)));
+            existing.Add((day, GetText(r, 1), GetText(r, 2).ToUpperInvariant()));
         }
 
         return existing;
@@ -205,8 +229,11 @@ WHERE day >= $from AND day <= $to
 SELECT day,region_code,bidding_zone,direction,price_offered,hour01,hour02,hour03,hour04,hour05,hour06,hour07,hour08,hour09,hour10,hour11,hour12,hour13,hour14,hour15,hour16,hour17,hour18,hour19,hour20,hour21,hour22,hour23,hour24,reference_id
 FROM scraped_points
 WHERE day >= $from AND day <= $to
-  AND direction = $direction
-  AND region_code IN ({string.Join(",", placeholders)})
+  AND UPPER(direction) = UPPER($direction)
+  AND (
+    region_code IN ({string.Join(",", placeholders)})
+    OR bidding_zone IN ({string.Join(",", placeholders)})
+  )
 ORDER BY bidding_zone, day;";
         cmd.Parameters.AddWithValue("$from", from.ToString("yyyy-MM-dd"));
         cmd.Parameters.AddWithValue("$to", to.ToString("yyyy-MM-dd"));
