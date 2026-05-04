@@ -16,48 +16,59 @@
         </Grid.RowDefinitions>
 
         <Border Grid.Row="0" BorderBrush="#DDD" BorderThickness="1" CornerRadius="6" Padding="10" Margin="0,0,0,10">
-            <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
-                <WrapPanel ItemWidth="170" Orientation="Horizontal">
-                    <StackPanel Width="280" Margin="0,0,10,8">
+            <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="280" />
+                        <ColumnDefinition Width="155" />
+                        <ColumnDefinition Width="155" />
+                        <ColumnDefinition Width="155" />
+                        <ColumnDefinition Width="*" MinWidth="200" />
+                        <ColumnDefinition Width="140" />
+                        <ColumnDefinition Width="140" />
+                        <ColumnDefinition Width="220" />
+                    </Grid.ColumnDefinitions>
+
+                    <StackPanel Grid.Column="0" Margin="0,0,10,0">
                     <TextBlock Text="Regions" FontWeight="Bold" Margin="0,0,0,6" />
                     <ListBox x:Name="RegionsListBox" SelectionMode="Multiple" Height="130" />
                 </StackPanel>
 
-                    <StackPanel Width="160" Margin="0,0,10,8">
+                    <StackPanel Grid.Column="1" Margin="0,0,10,0">
                     <TextBlock Text="From" FontWeight="Bold" Margin="0,0,0,6" />
                     <DatePicker x:Name="FromDatePicker" />
                 </StackPanel>
 
-                    <StackPanel Width="160" Margin="0,0,10,8">
+                    <StackPanel Grid.Column="2" Margin="0,0,10,0">
                     <TextBlock Text="To" FontWeight="Bold" Margin="0,0,0,6" />
                     <DatePicker x:Name="ToDatePicker" />
                 </StackPanel>
 
-                    <StackPanel Width="160" Margin="0,0,10,8">
+                    <StackPanel Grid.Column="3" Margin="0,0,10,0">
                     <TextBlock Text="Direction" FontWeight="Bold" Margin="0,0,0,6" />
                     <ComboBox x:Name="DirectionComboBox" />
                 </StackPanel>
 
-                    <StackPanel Width="220" Margin="0,0,10,8">
+                    <StackPanel Grid.Column="4" Margin="0,0,10,0">
                     <TextBlock Text="&quot;Rows/day&quot; hint" FontWeight="Bold" Margin="0,0,0,6" />
                     <TextBlock Text="NUCS URL currently uses 100 rows/day." TextWrapping="Wrap" Foreground="#666" />
                 </StackPanel>
 
-                    <StackPanel Width="140" VerticalAlignment="Bottom" Margin="0,0,10,8">
+                    <StackPanel Grid.Column="5" VerticalAlignment="Bottom" Margin="0,0,10,0">
                     <Button x:Name="ExportDatabaseButton" Width="130" Height="32" Content="Export Database" Click="ExportDatabaseButton_OnClick" />
                 </StackPanel>
 
-                    <StackPanel Width="140" VerticalAlignment="Bottom" Margin="0,0,10,8">
+                    <StackPanel Grid.Column="6" VerticalAlignment="Bottom" Margin="0,0,10,0">
                     <Button x:Name="ImportDatabaseButton" Width="130" Height="32" Content="Import Database" Click="ImportDatabaseButton_OnClick" />
                 </StackPanel>
 
-                    <StackPanel Width="220" VerticalAlignment="Bottom" Margin="0,0,10,8">
+                    <StackPanel Grid.Column="7" VerticalAlignment="Bottom" Margin="0,0,0,0">
                     <Button x:Name="FetchButton" Width="140" Height="32" Content="Fetch Data" Click="FetchButton_OnClick" />
                     <TextBlock x:Name="StatusText" Margin="0,8,0,0" Foreground="#666" Text="Ready." />
                     <ProgressBar x:Name="FetchProgressBar" Height="10" Minimum="0" Maximum="100" Value="0" Margin="0,8,0,0" />
                     <TextBlock x:Name="FetchProgressText" Margin="0,4,0,0" Foreground="#666" Text="0%" />
                 </StackPanel>
-                </WrapPanel>
+                </Grid>
             </ScrollViewer>
         </Border>
 
