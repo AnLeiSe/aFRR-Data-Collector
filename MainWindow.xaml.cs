@@ -236,7 +236,7 @@ public partial class MainWindow : Window
 
     private static PlotModel CreateEmptyPlot()
     {
-        var model = new PlotModel { Title = "Daily traded volume (Total MW * Price Avg)", IsLegendVisible = true };
+        var model = new PlotModel { Title = "Daily traded volume (Total MW * Price Max)", IsLegendVisible = true };
         model.Legends.Add(new Legend { LegendTitle = "Zone colors", LegendPosition = LegendPosition.TopRight });
         model.Axes.Add(new DateTimeAxis
         {
