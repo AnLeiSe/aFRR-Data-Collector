@@ -10,9 +10,9 @@
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
-            <RowDefinition Height="*" />
+            <RowDefinition x:Name="ResultsRowDefinition" Height="*" />
             <RowDefinition Height="Auto" />
-            <RowDefinition Height="*" />
+            <RowDefinition x:Name="GraphRowDefinition" Height="*" />
         </Grid.RowDefinitions>
 
         <Border Grid.Row="0" BorderBrush="#DDD" BorderThickness="1" CornerRadius="6" Padding="10" Margin="0,0,0,10">
@@ -89,7 +89,12 @@
             </Border>
         </Expander>
 
-        <Expander Grid.Row="2" Header="Results table" IsExpanded="True" Margin="0,0,0,10">
+        <Expander Grid.Row="2"
+                  Header="Results table"
+                  IsExpanded="True"
+                  Margin="0,0,0,10"
+                  Expanded="ResultsExpander_OnExpanded"
+                  Collapsed="ResultsExpander_OnCollapsed">
             <Border BorderBrush="#DDD" BorderThickness="1" CornerRadius="6" Padding="8">
                 <DataGrid x:Name="ResultsDataGrid"
                           IsReadOnly="True"
