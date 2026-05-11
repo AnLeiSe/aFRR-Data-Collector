@@ -270,8 +270,7 @@ public partial class MainWindow : Window
                 var pngExporter = new OxyPlot.Wpf.PngExporter
                 {
                     Width = width,
-                    Height = height,
-                    Background = OxyColors.White
+                    Height = height
                 };
                 pngExporter.Export(DailyVolumePlot.Model, stream);
                 break;
