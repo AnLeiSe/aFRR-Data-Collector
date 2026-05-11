@@ -90,7 +90,6 @@ public sealed class NucsAfrrService
                 Day = g.Key.Day,
                 Time = g.Key.Time,
                 TotalMw = g.Sum(x => x.Mw),
-                PriceAvg = g.Average(x => x.PriceOfferedEuroPerMw),
                 PriceMin = g.Min(x => x.PriceOfferedEuroPerMw),
                 PriceMax = g.Max(x => x.PriceOfferedEuroPerMw)
             })

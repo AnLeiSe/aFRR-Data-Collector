@@ -100,7 +100,6 @@
                 <DataGridTextColumn Header="Day" Binding="{Binding Day}" Width="100" />
                 <DataGridTextColumn Header="Time" Binding="{Binding Time}" Width="80" />
                 <DataGridTextColumn Header="Total MW" Binding="{Binding TotalMw, StringFormat=N2}" Width="120" />
-                <DataGridTextColumn Header="Price Avg" Binding="{Binding PriceAvg, StringFormat=N2}" Width="120" />
                 <DataGridTextColumn Header="Price Min" Binding="{Binding PriceMin, StringFormat=N2}" Width="120" />
                 <DataGridTextColumn Header="Price Max" Binding="{Binding PriceMax, StringFormat=N2}" Width="120" />
                 <DataGridTextColumn Header="Volume" Binding="{Binding Volume, StringFormat=N2}" Width="120" />
