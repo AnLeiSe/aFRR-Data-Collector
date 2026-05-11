@@ -6,6 +6,7 @@ using OxyPlot;
 using OxyPlot.Axes;
 using OxyPlot.Legends;
 using OxyPlot.Series;
+using OxyPlot.Wpf;
 
 namespace AfrrCollector;
 
@@ -232,6 +233,45 @@ public partial class MainWindow : Window
 
         DailyVolumePlot.Model = CreateDailyVolumePlot(NucsAfrrService.BuildDailyVolumeSeries(hourly));
         StatusText.Text = $"Imported {imported.Count} raw rows from database.";
+    }
+
+    private void ExportGraphButton_OnClick(object sender, RoutedEventArgs e)
+    {
+        if (DailyVolumePlot.Model is null)
+        {
+            MessageBox.Show("No graph available to export yet.", "Export graph", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        var dialog = new SaveFileDialog
+        {
+            Filter = "PNG image (*.png)|*.png|SVG vector (*.svg)|*.svg",
+            FileName = "daily-volume-graph"
+        };
+
+        if (dialog.ShowDialog() != true)
+        {
+            return;
+        }
+
+        var ext = System.IO.Path.GetExtension(dialog.FileName).ToLowerInvariant();
+        var width = (int)Math.Max(1, DailyVolumePlot.ActualWidth);
+        var height = (int)Math.Max(1, DailyVolumePlot.ActualHeight);
+
+        using var stream = File.Create(dialog.FileName);
+        switch (ext)
+        {
+            case ".svg":
+                var svgExporter = new SvgExporter { Width = width, Height = height, IsDocument = true };
+                svgExporter.Export(DailyVolumePlot.Model, stream);
+                break;
+            case ".png":
+            default:
+                PngExporter.Export(DailyVolumePlot.Model, stream, width, height, OxyColors.White);
+                break;
+        }
+
+        StatusText.Text = $"Graph exported: {dialog.FileName}";
     }
 
     private static PlotModel CreateEmptyPlot()
