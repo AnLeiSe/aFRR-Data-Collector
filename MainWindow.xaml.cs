@@ -6,6 +6,7 @@ using OxyPlot;
 using OxyPlot.Axes;
 using OxyPlot.Legends;
 using OxyPlot.Series;
+using OxyPlot.Wpf;
 
 namespace AfrrCollector;
 
