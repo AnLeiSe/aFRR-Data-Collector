@@ -40,6 +40,11 @@ public partial class MainWindow : Window
         RegionsListBox.ItemsSource = Regions;
         DirectionComboBox.ItemsSource = Enum.GetValues<RegulationDirection>();
         DirectionComboBox.SelectedItem = RegulationDirection.Up;
+        CompareRegionComboBox.ItemsSource = Regions;
+        CompareRegionComboBox.DisplayMemberPath = "Code";
+        CompareRegionComboBox.SelectedIndex = 0;
+        CompareDirectionComboBox.ItemsSource = Enum.GetValues<RegulationDirection>();
+        CompareDirectionComboBox.SelectedItem = RegulationDirection.Up;
 
         FromDatePicker.SelectedDate = DateTime.Today.AddDays(-7);
         ToDatePicker.SelectedDate = DateTime.Today;
@@ -141,6 +146,11 @@ public partial class MainWindow : Window
             if (fetchedRawPoints.Count > 0)
             {
                 _database.SaveScrapedPoints(fetchedRawPoints);
+                var mfrrPoints = await _service.FetchRawPointsAsync(fromDate, toDate, selectedRegions, direction.Value, MarketType.Mfrr);
+                if (mfrrPoints.Count > 0)
+                {
+                    _database.SaveMfrrScrapedPoints(mfrrPoints);
+                }
             }
 
             var rawPoints = _database.LoadBySelection(fromDate, toDate, selectedRegionCodes, directionText);
@@ -312,6 +322,51 @@ public partial class MainWindow : Window
 
             model.Series.Add(line);
         }
+        return model;
+    }
+
+
+
+    private async void RenderCompareGraphButton_OnClick(object sender, RoutedEventArgs e)
+    {
+        if (CompareRegionComboBox.SelectedItem is not RegionOption region || CompareDirectionComboBox.SelectedItem is not RegulationDirection direction)
+        {
+            return;
+        }
+
+        var from = DateOnly.FromDateTime(FromDatePicker.SelectedDate ?? DateTime.Today.AddDays(-7));
+        var to = DateOnly.FromDateTime(ToDatePicker.SelectedDate ?? DateTime.Today);
+        var dir = direction == RegulationDirection.Up ? "UP" : "DOWN";
+
+        var afrr = NucsAfrrService.BuildHourlySummariesFromRaw(_database.LoadBySelection(from, to, new[] { region.Code }, dir));
+        var mfrrExisting = _database.LoadExistingMfrrDayRegionDirection(from, to, new[] { region.Code }, dir);
+        var missing = Enumerable.Range(0, to.DayNumber - from.DayNumber + 1).Select(i => from.AddDays(i)).Where(d => !mfrrExisting.Contains((d, region.Code, dir))).ToArray();
+        foreach (var day in missing)
+        {
+            var rows = await _service.FetchRawPointsAsync(day, day, new[] { region }, direction, MarketType.Mfrr);
+            _database.SaveMfrrScrapedPoints(rows);
+        }
+
+        var mfrr = NucsAfrrService.BuildHourlySummariesFromRaw(_database.LoadMfrrBySelection(from, to, new[] { region.Code }, dir));
+        DailyVolumePlot.Model = CreateMaxBidComparisonPlot(region.Code, afrr, mfrr);
+    }
+
+    private static PlotModel CreateMaxBidComparisonPlot(string regionCode, IEnumerable<AfrrHourSummary> afrr, IEnumerable<AfrrHourSummary> mfrr)
+    {
+        var model = new PlotModel { Title = $"Max accepted bid price comparison ({regionCode})" };
+        model.Axes.Add(new DateTimeAxis { Position = AxisPosition.Bottom, StringFormat = "yyyy-MM-dd", IntervalType = DateTimeIntervalType.Days, Angle = 30 });
+        model.Axes.Add(new LinearAxis { Position = AxisPosition.Left, Title = "Max price (€/MW)" });
+
+        var afrrLine = new LineSeries { Title = "aFRR Max Bid", StrokeThickness = 2 };
+        foreach (var p in afrr.GroupBy(x => x.Day).Select(g => new { Day = g.Key, Max = g.Max(x => x.PriceMax) }).OrderBy(x => x.Day))
+            afrrLine.Points.Add(new DataPoint(DateTimeAxis.ToDouble(p.Day.ToDateTime(TimeOnly.MinValue)), p.Max));
+
+        var mfrrLine = new LineSeries { Title = "mFRR Max Bid", StrokeThickness = 2 };
+        foreach (var p in mfrr.GroupBy(x => x.Day).Select(g => new { Day = g.Key, Max = g.Max(x => x.PriceMax) }).OrderBy(x => x.Day))
+            mfrrLine.Points.Add(new DataPoint(DateTimeAxis.ToDouble(p.Day.ToDateTime(TimeOnly.MinValue)), p.Max));
+
+        model.Series.Add(afrrLine);
+        model.Series.Add(mfrrLine);
         return model;
     }
 

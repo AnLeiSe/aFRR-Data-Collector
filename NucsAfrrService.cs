@@ -40,11 +40,20 @@ public sealed class NucsAfrrService
         _httpClient = new HttpClient(handler);
     }
 
+    public Task<IReadOnlyList<ScrapedDataPoint>> FetchRawPointsAsync(
+        DateOnly from,
+        DateOnly to,
+        IReadOnlyCollection<RegionOption> regions,
+        RegulationDirection direction,
+        CancellationToken cancellationToken = default)
+        => FetchRawPointsAsync(from, to, regions, direction, MarketType.Afrr, cancellationToken);
+
     public async Task<IReadOnlyList<ScrapedDataPoint>> FetchRawPointsAsync(
         DateOnly from,
         DateOnly to,
         IReadOnlyCollection<RegionOption> regions,
         RegulationDirection direction,
+        MarketType marketType,
         CancellationToken cancellationToken = default)
     {
         if (from > to)
@@ -64,7 +73,7 @@ public sealed class NucsAfrrService
             foreach (var region in regions)
             {
                 var singleRegion = new[] { region };
-                var parsedRows = await FetchDataTableRowsAsync(day, singleRegion, direction, cancellationToken);
+                var parsedRows = await FetchDataTableRowsAsync(day, singleRegion, direction, marketType, cancellationToken);
                 points.AddRange(parsedRows.Select(r =>
                 {
                     r.Day = day;
@@ -118,10 +127,11 @@ public sealed class NucsAfrrService
         DateOnly day,
         IReadOnlyCollection<RegionOption> regions,
         RegulationDirection direction,
+        MarketType marketType,
         CancellationToken cancellationToken)
     {
         // Prime session/cookies like browser flow.
-        var showUrl = BuildUrl(day, regions, direction, includeAtch: false);
+        var showUrl = BuildUrl(day, regions, direction, marketType, includeAtch: false);
         using (var showRequest = new HttpRequestMessage(HttpMethod.Get, showUrl))
         {
             showRequest.Headers.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64)");
@@ -134,7 +144,7 @@ public sealed class NucsAfrrService
 
         while (true)
         {
-            var postUrl = BuildDataTableUrl(day, regions, direction, DataTablePageSize, displayStart);
+            var postUrl = BuildDataTableUrl(day, regions, direction, marketType, DataTablePageSize, displayStart);
             using var postRequest = new HttpRequestMessage(HttpMethod.Post, postUrl);
             postRequest.Headers.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64)");
             postRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
@@ -185,12 +195,12 @@ public sealed class NucsAfrrService
         return JsonSerializer.Serialize(payload);
     }
 
-    private static Uri BuildDataTableUrl(DateOnly day, IReadOnlyCollection<RegionOption> regions, RegulationDirection direction, int pageLength, int pageStart)
-        => BuildUrlCore(day, regions, direction, includeAtch: false, DataTableUrl, pageLength, pageStart);
-    private static Uri BuildUrl(DateOnly day, IReadOnlyCollection<RegionOption> regions, RegulationDirection direction, bool includeAtch)
-        => BuildUrlCore(day, regions, direction, includeAtch, BaseUrl, -1, 0);
+    private static Uri BuildDataTableUrl(DateOnly day, IReadOnlyCollection<RegionOption> regions, RegulationDirection direction, MarketType marketType, int pageLength, int pageStart)
+        => BuildUrlCore(day, regions, direction, marketType, includeAtch: false, DataTableUrl, pageLength, pageStart);
+    private static Uri BuildUrl(DateOnly day, IReadOnlyCollection<RegionOption> regions, RegulationDirection direction, MarketType marketType, bool includeAtch)
+        => BuildUrlCore(day, regions, direction, marketType, includeAtch, BaseUrl, -1, 0);
 
-    private static Uri BuildUrlCore(DateOnly day, IReadOnlyCollection<RegionOption> regions, RegulationDirection direction, bool includeAtch, string baseUrl, int pageLength, int pageStart)
+    private static Uri BuildUrlCore(DateOnly day, IReadOnlyCollection<RegionOption> regions, RegulationDirection direction, MarketType marketType, bool includeAtch, string baseUrl, int pageLength, int pageStart)
     {
         var sb = new StringBuilder(baseUrl);
         sb.Append("?");
@@ -235,8 +245,8 @@ public sealed class NucsAfrrService
             Add("reserveSources.values", source);
         }
 
-        Add("reserveType.values", "A51");
-        Add("balancingTypes", "SECONDARY");
+        Add("reserveType.values", marketType == MarketType.Afrr ? "A51" : "A47");
+        Add("balancingTypes", marketType == MarketType.Afrr ? "SECONDARY" : "TERTIARY");
         Add("energyDirection.values", direction == RegulationDirection.Up ? "UP" : "DOWN");
         Add("dv-datatable_length", pageLength.ToString(CultureInfo.InvariantCulture));
         Add("dv-datatable_start", pageStart.ToString(CultureInfo.InvariantCulture));
