@@ -269,4 +269,16 @@ public partial class MainWindow : Window
         }
         return model;
     }
+
+    private void ResultsExpander_OnExpanded(object sender, RoutedEventArgs e)
+    {
+        ResultsRowDefinition.Height = new GridLength(1, GridUnitType.Star);
+        GraphRowDefinition.Height = new GridLength(1, GridUnitType.Star);
+    }
+
+    private void ResultsExpander_OnCollapsed(object sender, RoutedEventArgs e)
+    {
+        ResultsRowDefinition.Height = GridLength.Auto;
+        GraphRowDefinition.Height = new GridLength(1, GridUnitType.Star);
+    }
 }
