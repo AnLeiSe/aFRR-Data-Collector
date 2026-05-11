@@ -129,12 +129,19 @@
                         <RowDefinition Height="*" />
                     </Grid.RowDefinitions>
 
-                    <StackPanel Grid.Row="0" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,0,0,8">
+                    <StackPanel Grid.Row="0" Orientation="Horizontal" HorizontalAlignment="Stretch" Margin="0,0,0,8">
+                        <TextBlock Text="Compare Region" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                        <ComboBox x:Name="CompareRegionComboBox" Width="90" Margin="0,0,10,0"/>
+                        <TextBlock Text="Direction" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                        <ComboBox x:Name="CompareDirectionComboBox" Width="100" Margin="0,0,10,0"/>
+                        <Button x:Name="RenderCompareGraphButton" Content="Render aFRR vs mFRR" MinWidth="150" Height="30" Margin="0,0,10,0" Click="RenderCompareGraphButton_OnClick"/>
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
                         <Button x:Name="ExportGraphButton"
                                 Content="Export Graph"
                                 MinWidth="120"
                                 Height="30"
                                 Click="ExportGraphButton_OnClick" />
+                    </StackPanel>
                     </StackPanel>
 
                     <oxy:PlotView Grid.Row="1" x:Name="DailyVolumePlot" />
