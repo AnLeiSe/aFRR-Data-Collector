@@ -262,12 +262,18 @@ public partial class MainWindow : Window
         switch (ext)
         {
             case ".svg":
-                var svgExporter = new SvgExporter { Width = width, Height = height, IsDocument = true };
+                var svgExporter = new OxyPlot.SvgExporter { Width = width, Height = height, IsDocument = true };
                 svgExporter.Export(DailyVolumePlot.Model, stream);
                 break;
             case ".png":
             default:
-                PngExporter.Export(DailyVolumePlot.Model, stream, width, height, OxyColors.White);
+                var pngExporter = new OxyPlot.Wpf.PngExporter
+                {
+                    Width = width,
+                    Height = height,
+                    Background = OxyColors.White
+                };
+                pngExporter.Export(DailyVolumePlot.Model, stream);
                 break;
         }
 
