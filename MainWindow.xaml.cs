@@ -359,6 +359,33 @@ public partial class MainWindow : Window
         var to = DateOnly.FromDateTime(ToDatePicker.SelectedDate ?? DateTime.Today);
         var dir = direction == RegulationDirection.Up ? "UP" : "DOWN";
 
+<<<<<<< codex/add-mfrr-graph-with-selectable-region
+        var afrrExisting = _database.LoadExistingDayRegionDirection(from, to, new[] { region.Code }, dir);
+        var allDays = Enumerable.Range(0, to.DayNumber - from.DayNumber + 1).Select(i => from.AddDays(i)).ToArray();
+
+        var missingAfrr = allDays.Where(d => !afrrExisting.Contains((d, region.Code, dir))).ToArray();
+        foreach (var day in missingAfrr)
+        {
+            var rows = await _service.FetchRawPointsAsync(day, day, new[] { region }, direction);
+            if (rows.Count > 0)
+            {
+                _database.SaveScrapedPoints(rows);
+            }
+        }
+
+        var mfrrExisting = _database.LoadExistingMfrrDayRegionDirection(from, to, new[] { region.Code }, dir);
+        var missingMfrr = allDays.Where(d => !mfrrExisting.Contains((d, region.Code, dir))).ToArray();
+        foreach (var day in missingMfrr)
+        {
+            var rows = await _service.FetchRawPointsAsync(day, day, new[] { region }, direction, MarketType.Mfrr);
+            if (rows.Count > 0)
+            {
+                _database.SaveMfrrScrapedPoints(rows);
+            }
+        }
+
+        var afrr = NucsAfrrService.BuildHourlySummariesFromRaw(_database.LoadBySelection(from, to, new[] { region.Code }, dir));
+=======
         var afrr = NucsAfrrService.BuildHourlySummariesFromRaw(_database.LoadBySelection(from, to, new[] { region.Code }, dir));
         var mfrrExisting = _database.LoadExistingMfrrDayRegionDirection(from, to, new[] { region.Code }, dir);
         var missing = Enumerable.Range(0, to.DayNumber - from.DayNumber + 1).Select(i => from.AddDays(i)).Where(d => !mfrrExisting.Contains((d, region.Code, dir))).ToArray();
@@ -368,6 +395,7 @@ public partial class MainWindow : Window
             _database.SaveMfrrScrapedPoints(rows);
         }
 
+>>>>>>> main
         var mfrr = NucsAfrrService.BuildHourlySummariesFromRaw(_database.LoadMfrrBySelection(from, to, new[] { region.Code }, dir));
         AfrrMfrrComparisonPlot.Model = CreateMaxBidComparisonPlot(region.Code, afrr, mfrr);
     }
