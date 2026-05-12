@@ -116,7 +116,7 @@
         </Expander>
 
         <GridSplitter Grid.Row="3"
-                      Height="8"
+                      Height="2"
                       HorizontalAlignment="Stretch"
                       VerticalAlignment="Center"
                       Background="#DDD"
@@ -141,7 +141,7 @@
         </Expander>
 
         <GridSplitter Grid.Row="5"
-                      Height="8"
+                      Height="2"
                       HorizontalAlignment="Stretch"
                       VerticalAlignment="Center"
                       Background="#DDD"
