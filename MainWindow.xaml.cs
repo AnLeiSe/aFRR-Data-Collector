@@ -374,7 +374,8 @@ public partial class MainWindow : Window
 
     private static PlotModel CreateEmptyComparisonPlot()
     {
-        var model = new PlotModel { Title = "Max accepted bid price comparison" };
+        var model = new PlotModel { Title = "Max accepted bid price comparison", IsLegendVisible = true };
+        model.Legends.Add(new Legend { LegendTitle = "Market", LegendPosition = LegendPosition.TopRight });
         model.Axes.Add(new DateTimeAxis { Position = AxisPosition.Bottom, StringFormat = "yyyy-MM-dd", IntervalType = DateTimeIntervalType.Days, Angle = 30 });
         model.Axes.Add(new LinearAxis { Position = AxisPosition.Left, Title = "Max price (€/MW)" });
         return model;
@@ -382,15 +383,16 @@ public partial class MainWindow : Window
 
     private static PlotModel CreateMaxBidComparisonPlot(string regionCode, IEnumerable<AfrrHourSummary> afrr, IEnumerable<AfrrHourSummary> mfrr)
     {
-        var model = new PlotModel { Title = $"Max accepted bid price comparison ({regionCode})" };
+        var model = new PlotModel { Title = $"Max accepted bid price comparison ({regionCode})", IsLegendVisible = true };
+        model.Legends.Add(new Legend { LegendTitle = "Market", LegendPosition = LegendPosition.TopRight });
         model.Axes.Add(new DateTimeAxis { Position = AxisPosition.Bottom, StringFormat = "yyyy-MM-dd", IntervalType = DateTimeIntervalType.Days, Angle = 30 });
         model.Axes.Add(new LinearAxis { Position = AxisPosition.Left, Title = "Max price (€/MW)" });
 
-        var afrrLine = new LineSeries { Title = "aFRR Max Bid", StrokeThickness = 2 };
+        var afrrLine = new LineSeries { Title = "aFRR Max Bid", StrokeThickness = 2, Color = OxyColors.SteelBlue };
         foreach (var p in afrr.GroupBy(x => x.Day).Select(g => new { Day = g.Key, Max = g.Max(x => x.PriceMax) }).OrderBy(x => x.Day))
             afrrLine.Points.Add(new DataPoint(DateTimeAxis.ToDouble(p.Day.ToDateTime(TimeOnly.MinValue)), p.Max));
 
-        var mfrrLine = new LineSeries { Title = "mFRR Max Bid", StrokeThickness = 2 };
+        var mfrrLine = new LineSeries { Title = "mFRR Max Bid", StrokeThickness = 2, Color = OxyColors.OrangeRed };
         foreach (var p in mfrr.GroupBy(x => x.Day).Select(g => new { Day = g.Key, Max = g.Max(x => x.PriceMax) }).OrderBy(x => x.Day))
             mfrrLine.Points.Add(new DataPoint(DateTimeAxis.ToDouble(p.Day.ToDateTime(TimeOnly.MinValue)), p.Max));
 
