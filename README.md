@@ -32,20 +32,22 @@ dotnet run
 - The parser targets table rows in the NUCS HTML response and extracts the time plus the two right-most numeric values as `MW` and `Price`.
 - If NUCS changes its table structure, parsing logic in `NucsAfrrService.ParseRows` may need adjustment.
 
-## Build portable Windows executable
+## Build one-file portable Windows EXE (no DLL folder)
 
-This project is configured to publish as a **single self-contained EXE** for `win-x64`, so required .NET runtime and native dependencies (including SQLite native bits) are bundled with the app.
+If your goal is **one single EXE file** that already contains .NET runtime + app dependencies, use `dotnet publish` (not `dotnet build`):
 
 ```bash
-dotnet publish -c Release
+dotnet publish -c Release -r win-x64 --self-contained true /p:PublishSingleFile=true /p:IncludeNativeLibrariesForSelfExtract=true
 ```
 
-Output folder:
+The EXE is written to:
 
 ```
-bin/Release/net8.0-windows/win-x64/publish/
+bin/Release/net8.0-windows/win-x64/publish/AfrrCollector.exe
 ```
+
+After publishing, that `publish` directory should contain just the EXE for this project.
 
 Notes:
-- The SQLite database file (`afrr-data.db`) is **not embedded into the EXE**. It is created/used next to the EXE at runtime, which is the right behavior for portable data persistence.
-- You can copy the entire `publish` folder to another Windows machine and run `AfrrCollector.exe` directly.
+- `afrr-data.db` is intentionally **not embedded** into the EXE. It is created next to the EXE on first run so your data persists in a portable way.
+- If you run `dotnet build`, you will still see many files; that is normal. Use `dotnet publish` for the distributable artifact.
