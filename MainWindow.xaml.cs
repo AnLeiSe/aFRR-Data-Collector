@@ -16,6 +16,10 @@ public partial class MainWindow : Window
     private readonly ObservableCollection<AfrrHourSummary> _rows = new();
     private readonly DatabaseService _database = new(System.IO.Path.Combine(AppContext.BaseDirectory, "afrr-data.db"));
 
+    private double _resultsWeight = 1;
+    private double _dailyGraphWeight = 1;
+    private double _comparisonGraphWeight = 1;
+
     private static readonly IReadOnlyList<RegionOption> Regions =
     new List<RegionOption>
     {
@@ -52,7 +56,7 @@ public partial class MainWindow : Window
         ResultsDataGrid.ItemsSource = _rows;
         DailyVolumePlot.Model = CreateEmptyPlot();
         AfrrMfrrComparisonPlot.Model = CreateEmptyComparisonPlot();
-        UpdateGraphRows();
+        UpdateExpanderRowHeights();
     }
 
     private async void FetchButton_OnClick(object sender, RoutedEventArgs e)
@@ -431,29 +435,40 @@ public partial class MainWindow : Window
 
 
 
-    private void GraphExpanders_OnStateChanged(object sender, RoutedEventArgs e)
+    private void AnyExpander_OnStateChanged(object sender, RoutedEventArgs e)
     {
-        UpdateGraphRows();
+        UpdateExpanderRowHeights();
     }
 
-    private void UpdateGraphRows()
+    private void UpdateExpanderRowHeights()
     {
-        var dailyExpanded = DailyGraphExpander?.IsExpanded == true;
-        var comparisonExpanded = ComparisonGraphExpander?.IsExpanded == true;
+        if (ResultsExpander?.IsExpanded == true && ResultsRowDefinition.ActualHeight > 0)
+        {
+            _resultsWeight = ResultsRowDefinition.ActualHeight;
+        }
 
-        GraphRowDefinition.Height = dailyExpanded ? new GridLength(1, GridUnitType.Star) : GridLength.Auto;
-        ComparisonGraphRowDefinition.Height = comparisonExpanded ? new GridLength(1, GridUnitType.Star) : GridLength.Auto;
+        if (DailyGraphExpander?.IsExpanded == true && GraphRowDefinition.ActualHeight > 0)
+        {
+            _dailyGraphWeight = GraphRowDefinition.ActualHeight;
+        }
+
+        if (ComparisonGraphExpander?.IsExpanded == true && ComparisonGraphRowDefinition.ActualHeight > 0)
+        {
+            _comparisonGraphWeight = ComparisonGraphRowDefinition.ActualHeight;
+        }
+
+        ResultsRowDefinition.Height = ResultsExpander?.IsExpanded == true
+            ? new GridLength(Math.Max(1, _resultsWeight), GridUnitType.Star)
+            : GridLength.Auto;
+
+        GraphRowDefinition.Height = DailyGraphExpander?.IsExpanded == true
+            ? new GridLength(Math.Max(1, _dailyGraphWeight), GridUnitType.Star)
+            : GridLength.Auto;
+
+        ComparisonGraphRowDefinition.Height = ComparisonGraphExpander?.IsExpanded == true
+            ? new GridLength(Math.Max(1, _comparisonGraphWeight), GridUnitType.Star)
+            : GridLength.Auto;
     }
 
-    private void ResultsExpander_OnExpanded(object sender, RoutedEventArgs e)
-    {
-        ResultsRowDefinition.Height = new GridLength(1, GridUnitType.Star);
-        GraphRowDefinition.Height = new GridLength(1, GridUnitType.Star);
-    }
 
-    private void ResultsExpander_OnCollapsed(object sender, RoutedEventArgs e)
-    {
-        ResultsRowDefinition.Height = GridLength.Auto;
-        GraphRowDefinition.Height = new GridLength(1, GridUnitType.Star);
-    }
 }
