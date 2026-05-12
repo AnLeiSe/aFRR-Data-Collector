@@ -437,22 +437,26 @@ public partial class MainWindow : Window
 
     private void AnyExpander_OnStateChanged(object sender, RoutedEventArgs e)
     {
-        UpdateExpanderRowHeights();
+        UpdateExpanderRowHeights(sender as FrameworkElement);
     }
 
-    private void UpdateExpanderRowHeights()
+    private void UpdateExpanderRowHeights(FrameworkElement? toggledExpander = null)
     {
-        if (ResultsExpander?.IsExpanded == true && ResultsRowDefinition.ActualHeight > 0)
+        var skipResultsCapture = ReferenceEquals(toggledExpander, ResultsExpander);
+        var skipDailyCapture = ReferenceEquals(toggledExpander, DailyGraphExpander);
+        var skipComparisonCapture = ReferenceEquals(toggledExpander, ComparisonGraphExpander);
+
+        if (!skipResultsCapture && ResultsExpander?.IsExpanded == true && ResultsRowDefinition.ActualHeight > 0)
         {
             _resultsWeight = ResultsRowDefinition.ActualHeight;
         }
 
-        if (DailyGraphExpander?.IsExpanded == true && GraphRowDefinition.ActualHeight > 0)
+        if (!skipDailyCapture && DailyGraphExpander?.IsExpanded == true && GraphRowDefinition.ActualHeight > 0)
         {
             _dailyGraphWeight = GraphRowDefinition.ActualHeight;
         }
 
-        if (ComparisonGraphExpander?.IsExpanded == true && ComparisonGraphRowDefinition.ActualHeight > 0)
+        if (!skipComparisonCapture && ComparisonGraphExpander?.IsExpanded == true && ComparisonGraphRowDefinition.ActualHeight > 0)
         {
             _comparisonGraphWeight = ComparisonGraphRowDefinition.ActualHeight;
         }
