@@ -32,22 +32,25 @@ dotnet run
 - The parser targets table rows in the NUCS HTML response and extracts the time plus the two right-most numeric values as `MW` and `Price`.
 - If NUCS changes its table structure, parsing logic in `NucsAfrrService.ParseRows` may need adjustment.
 
-## Build one-file portable Windows EXE (no DLL folder)
+## Build one-file portable Windows EXE (exactly 1 file output)
 
-If your goal is **one single EXE file** that already contains .NET runtime + app dependencies, use `dotnet publish` (not `dotnet build`):
+You are currently looking at `bin/Release/net8.0-windows/win-x64/` in your screenshot.
+That folder is an intermediate/runtime build folder and can contain many files.
+
+To get a **single distributable EXE only**, publish to a dedicated output folder:
 
 ```bash
-dotnet publish -c Release -r win-x64 --self-contained true /p:PublishSingleFile=true /p:IncludeNativeLibrariesForSelfExtract=true
+dotnet publish ./aFRR-Data-Collector.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:PublishTrimmed=false -p:DebugType=None -p:DebugSymbols=false -o ./dist-single
 ```
 
-The EXE is written to:
+Then distribute only:
 
-```
-bin/Release/net8.0-windows/win-x64/publish/AfrrCollector.exe
+```text
+dist-single/AfrrCollector.exe
 ```
 
-After publishing, that `publish` directory should contain just the EXE for this project.
+`dist-single` should contain just that EXE for this project (no .pdb, no extra DLL files).
 
 Notes:
-- `afrr-data.db` is intentionally **not embedded** into the EXE. It is created next to the EXE on first run so your data persists in a portable way.
-- If you run `dotnet build`, you will still see many files; that is normal. Use `dotnet publish` for the distributable artifact.
+- `afrr-data.db` is intentionally **not embedded** into the EXE. It is created next to the EXE on first run so data persists in portable mode.
+- Do **not** distribute `bin/Release/.../win-x64/`; distribute only the custom publish output folder (`dist-single`).
