@@ -131,7 +131,7 @@ public sealed class NucsAfrrService
         CancellationToken cancellationToken)
     {
         // Prime session/cookies like browser flow.
-        var showUrl = BuildUrl(day, regions, direction, marketType, includeAtch: false);
+        var showUrl = BuildUrl(day, regions, direction, marketType);
         using (var showRequest = new HttpRequestMessage(HttpMethod.Get, showUrl))
         {
             showRequest.Headers.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64)");
@@ -196,11 +196,11 @@ public sealed class NucsAfrrService
     }
 
     private static Uri BuildDataTableUrl(DateOnly day, IReadOnlyCollection<RegionOption> regions, RegulationDirection direction, MarketType marketType, int pageLength, int pageStart)
-        => BuildUrlCore(day, regions, direction, marketType, includeAtch: false, DataTableUrl, pageLength, pageStart);
-    private static Uri BuildUrl(DateOnly day, IReadOnlyCollection<RegionOption> regions, RegulationDirection direction, MarketType marketType, bool includeAtch)
-        => BuildUrlCore(day, regions, direction, marketType, includeAtch, BaseUrl, -1, 0);
+        => BuildUrlCore(day, regions, direction, marketType, DataTableUrl, pageLength, pageStart);
+    private static Uri BuildUrl(DateOnly day, IReadOnlyCollection<RegionOption> regions, RegulationDirection direction, MarketType marketType)
+        => BuildUrlCore(day, regions, direction, marketType, BaseUrl, -1, 0);
 
-    private static Uri BuildUrlCore(DateOnly day, IReadOnlyCollection<RegionOption> regions, RegulationDirection direction, MarketType marketType, bool includeAtch, string baseUrl, int pageLength, int pageStart)
+    private static Uri BuildUrlCore(DateOnly day, IReadOnlyCollection<RegionOption> regions, RegulationDirection direction, MarketType marketType, string baseUrl, int pageLength, int pageStart)
     {
         var sb = new StringBuilder(baseUrl);
         sb.Append("?");
@@ -221,7 +221,7 @@ public sealed class NucsAfrrService
         Add("defaultValue", "false");
         Add("viewType", "TABLE");
         Add("areaType", "MBA");
-        Add("atch", includeAtch ? "true" : "false");
+        Add("atch", "false");
         Add("dateTime.dateTime", $"{day:dd.MM.yyyy} 00:00|CET|DAY");
         Add("areaSelectType", "USER_SELECTED");
 

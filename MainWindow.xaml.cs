@@ -6,7 +6,6 @@ using OxyPlot;
 using OxyPlot.Axes;
 using OxyPlot.Legends;
 using OxyPlot.Series;
-using OxyPlot.Wpf;
 
 namespace AfrrCollector;
 
@@ -368,7 +367,6 @@ public partial class MainWindow : Window
         var allDays = Enumerable.Range(0, to.DayNumber - from.DayNumber + 1).Select(i => from.AddDays(i)).ToArray();
 
         var missingAfrr = allDays.Where(d => !afrrExisting.Contains((d, region.Code, dir))).ToArray();
-        var missingMfrr = Array.Empty<DateOnly>();
         var totalSlices = Math.Max(1, missingAfrr.Length);
         var completedSlices = 0;
         UpdateFetchProgress(0, totalSlices);
@@ -385,7 +383,7 @@ public partial class MainWindow : Window
         }
 
         var mfrrExisting = _database.LoadExistingMfrrDayRegionDirection(from, to, new[] { region.Code }, dir);
-        missingMfrr = allDays.Where(d => !mfrrExisting.Contains((d, region.Code, dir))).ToArray();
+        var missingMfrr = allDays.Where(d => !mfrrExisting.Contains((d, region.Code, dir))).ToArray();
         totalSlices = Math.Max(1, missingAfrr.Length + missingMfrr.Length);
         UpdateFetchProgress(completedSlices, totalSlices);
         foreach (var day in missingMfrr)
