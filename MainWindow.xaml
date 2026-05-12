@@ -13,7 +13,8 @@
             <RowDefinition x:Name="ResultsRowDefinition" Height="*" />
             <RowDefinition Height="Auto" />
             <RowDefinition x:Name="GraphRowDefinition" Height="*" />
-            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition x:Name="ComparisonGraphRowDefinition" Height="*" />
         </Grid.RowDefinitions>
 
         <Border Grid.Row="0" BorderBrush="#DDD" BorderThickness="1" CornerRadius="6" Padding="10" Margin="0,0,0,10">
@@ -122,7 +123,7 @@
                       ResizeDirection="Rows"
                       ResizeBehavior="PreviousAndNext" />
 
-        <Expander Grid.Row="4" Header="Graph for Dayly Market Volume" IsExpanded="True" Margin="0,10,0,10">
+        <Expander x:Name="DailyGraphExpander" Grid.Row="4" Header="Graph for Dayly Market Volume" IsExpanded="True" Margin="0,10,0,10" Expanded="GraphExpanders_OnStateChanged" Collapsed="GraphExpanders_OnStateChanged">
             <Border BorderBrush="#DDD" BorderThickness="1" CornerRadius="6" Padding="8">
                 <Grid>
                     <Grid.RowDefinitions>
@@ -139,7 +140,15 @@
             </Border>
         </Expander>
 
-        <Expander Grid.Row="5" Header="Graph for aFRR vs mFRR Max Accepted Bid" IsExpanded="True" Margin="0,0,0,0">
+        <GridSplitter Grid.Row="5"
+                      Height="8"
+                      HorizontalAlignment="Stretch"
+                      VerticalAlignment="Center"
+                      Background="#DDD"
+                      ResizeDirection="Rows"
+                      ResizeBehavior="PreviousAndNext" />
+
+        <Expander x:Name="ComparisonGraphExpander" Grid.Row="6" Header="Graph for aFRR vs mFRR Max Accepted Bid" IsExpanded="True" Margin="0,10,0,0" Expanded="GraphExpanders_OnStateChanged" Collapsed="GraphExpanders_OnStateChanged">
             <Border BorderBrush="#DDD" BorderThickness="1" CornerRadius="6" Padding="8">
                 <Grid>
                     <Grid.RowDefinitions>

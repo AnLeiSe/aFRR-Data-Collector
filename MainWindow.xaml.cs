@@ -52,6 +52,7 @@ public partial class MainWindow : Window
         ResultsDataGrid.ItemsSource = _rows;
         DailyVolumePlot.Model = CreateEmptyPlot();
         AfrrMfrrComparisonPlot.Model = CreateEmptyComparisonPlot();
+        UpdateGraphRows();
     }
 
     private async void FetchButton_OnClick(object sender, RoutedEventArgs e)
@@ -363,6 +364,11 @@ public partial class MainWindow : Window
         var allDays = Enumerable.Range(0, to.DayNumber - from.DayNumber + 1).Select(i => from.AddDays(i)).ToArray();
 
         var missingAfrr = allDays.Where(d => !afrrExisting.Contains((d, region.Code, dir))).ToArray();
+        var missingMfrr = Array.Empty<DateOnly>();
+        var totalSlices = Math.Max(1, missingAfrr.Length);
+        var completedSlices = 0;
+        UpdateFetchProgress(0, totalSlices);
+
         foreach (var day in missingAfrr)
         {
             var rows = await _service.FetchRawPointsAsync(day, day, new[] { region }, direction);
@@ -370,10 +376,14 @@ public partial class MainWindow : Window
             {
                 _database.SaveScrapedPoints(rows);
             }
+            completedSlices++;
+            UpdateFetchProgress(completedSlices, totalSlices);
         }
 
         var mfrrExisting = _database.LoadExistingMfrrDayRegionDirection(from, to, new[] { region.Code }, dir);
-        var missingMfrr = allDays.Where(d => !mfrrExisting.Contains((d, region.Code, dir))).ToArray();
+        missingMfrr = allDays.Where(d => !mfrrExisting.Contains((d, region.Code, dir))).ToArray();
+        totalSlices = Math.Max(1, missingAfrr.Length + missingMfrr.Length);
+        UpdateFetchProgress(completedSlices, totalSlices);
         foreach (var day in missingMfrr)
         {
             var rows = await _service.FetchRawPointsAsync(day, day, new[] { region }, direction, MarketType.Mfrr);
@@ -381,6 +391,8 @@ public partial class MainWindow : Window
             {
                 _database.SaveMfrrScrapedPoints(rows);
             }
+            completedSlices++;
+            UpdateFetchProgress(completedSlices, totalSlices);
         }
 
         var afrr = NucsAfrrService.BuildHourlySummariesFromRaw(_database.LoadBySelection(from, to, new[] { region.Code }, dir));
@@ -415,6 +427,22 @@ public partial class MainWindow : Window
         model.Series.Add(afrrLine);
         model.Series.Add(mfrrLine);
         return model;
+    }
+
+
+
+    private void GraphExpanders_OnStateChanged(object sender, RoutedEventArgs e)
+    {
+        UpdateGraphRows();
+    }
+
+    private void UpdateGraphRows()
+    {
+        var dailyExpanded = DailyGraphExpander?.IsExpanded == true;
+        var comparisonExpanded = ComparisonGraphExpander?.IsExpanded == true;
+
+        GraphRowDefinition.Height = dailyExpanded ? new GridLength(1, GridUnitType.Star) : GridLength.Auto;
+        ComparisonGraphRowDefinition.Height = comparisonExpanded ? new GridLength(1, GridUnitType.Star) : GridLength.Auto;
     }
 
     private void ResultsExpander_OnExpanded(object sender, RoutedEventArgs e)
