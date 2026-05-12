@@ -133,7 +133,6 @@
                     <StackPanel Grid.Row="0" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,0,0,8">
                         <Button x:Name="ExportGraphButton" Content="Export Graph" MinWidth="120" Height="30" Click="ExportGraphButton_OnClick" />
                     </StackPanel>
-                    </StackPanel>
 
                     <oxy:PlotView Grid.Row="1" x:Name="DailyVolumePlot" />
                 </Grid>
