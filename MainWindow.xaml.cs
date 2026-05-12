@@ -16,6 +16,10 @@ public partial class MainWindow : Window
     private readonly ObservableCollection<AfrrHourSummary> _rows = new();
     private readonly DatabaseService _database = new(System.IO.Path.Combine(AppContext.BaseDirectory, "afrr-data.db"));
 
+    private double _resultsWeight = 1;
+    private double _dailyGraphWeight = 1;
+    private double _comparisonGraphWeight = 1;
+
     private static readonly IReadOnlyList<RegionOption> Regions =
     new List<RegionOption>
     {
@@ -40,12 +44,19 @@ public partial class MainWindow : Window
         RegionsListBox.ItemsSource = Regions;
         DirectionComboBox.ItemsSource = Enum.GetValues<RegulationDirection>();
         DirectionComboBox.SelectedItem = RegulationDirection.Up;
+        CompareRegionComboBox.ItemsSource = Regions;
+        CompareRegionComboBox.DisplayMemberPath = "Code";
+        CompareRegionComboBox.SelectedIndex = 0;
+        CompareDirectionComboBox.ItemsSource = Enum.GetValues<RegulationDirection>();
+        CompareDirectionComboBox.SelectedItem = RegulationDirection.Up;
 
         FromDatePicker.SelectedDate = DateTime.Today.AddDays(-7);
         ToDatePicker.SelectedDate = DateTime.Today;
 
         ResultsDataGrid.ItemsSource = _rows;
         DailyVolumePlot.Model = CreateEmptyPlot();
+        AfrrMfrrComparisonPlot.Model = CreateEmptyComparisonPlot();
+        UpdateExpanderRowHeights();
     }
 
     private async void FetchButton_OnClick(object sender, RoutedEventArgs e)
@@ -141,6 +152,11 @@ public partial class MainWindow : Window
             if (fetchedRawPoints.Count > 0)
             {
                 _database.SaveScrapedPoints(fetchedRawPoints);
+                var mfrrPoints = await _service.FetchRawPointsAsync(fromDate, toDate, selectedRegions, direction.Value, MarketType.Mfrr);
+                if (mfrrPoints.Count > 0)
+                {
+                    _database.SaveMfrrScrapedPoints(mfrrPoints);
+                }
             }
 
             var rawPoints = _database.LoadBySelection(fromDate, toDate, selectedRegionCodes, directionText);
@@ -279,6 +295,26 @@ public partial class MainWindow : Window
         StatusText.Text = $"Graph exported: {dialog.FileName}";
     }
 
+
+
+    private void ExportCompareGraphButton_OnClick(object sender, RoutedEventArgs e)
+    {
+        if (AfrrMfrrComparisonPlot.Model is null)
+        {
+            MessageBox.Show("No comparison graph available to export yet.", "Export graph", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        var dialog = new SaveFileDialog { Filter = "PNG image (*.png)|*.png|SVG vector (*.svg)|*.svg", FileName = "afrr-mfrr-max-bid-graph" };
+        if (dialog.ShowDialog() != true) return;
+        var ext = System.IO.Path.GetExtension(dialog.FileName).ToLowerInvariant();
+        var width = (int)Math.Max(1, AfrrMfrrComparisonPlot.ActualWidth);
+        var height = (int)Math.Max(1, AfrrMfrrComparisonPlot.ActualHeight);
+        using var stream = File.Create(dialog.FileName);
+        if (ext == ".svg") new OxyPlot.SvgExporter { Width = width, Height = height, IsDocument = true }.Export(AfrrMfrrComparisonPlot.Model, stream);
+        else new OxyPlot.Wpf.PngExporter { Width = width, Height = height }.Export(AfrrMfrrComparisonPlot.Model, stream);
+    }
+
     private static PlotModel CreateEmptyPlot()
     {
         var model = new PlotModel { Title = "Daily traded volume (Total MW * Price Max)", IsLegendVisible = true };
@@ -315,15 +351,128 @@ public partial class MainWindow : Window
         return model;
     }
 
-    private void ResultsExpander_OnExpanded(object sender, RoutedEventArgs e)
+
+
+    private async void RenderCompareGraphButton_OnClick(object sender, RoutedEventArgs e)
     {
-        ResultsRowDefinition.Height = new GridLength(1, GridUnitType.Star);
-        GraphRowDefinition.Height = new GridLength(1, GridUnitType.Star);
+        if (CompareRegionComboBox.SelectedItem is not RegionOption region || CompareDirectionComboBox.SelectedItem is not RegulationDirection direction)
+        {
+            return;
+        }
+
+        var from = DateOnly.FromDateTime(FromDatePicker.SelectedDate ?? DateTime.Today.AddDays(-7));
+        var to = DateOnly.FromDateTime(ToDatePicker.SelectedDate ?? DateTime.Today);
+        var dir = direction == RegulationDirection.Up ? "UP" : "DOWN";
+
+        var afrrExisting = _database.LoadExistingDayRegionDirection(from, to, new[] { region.Code }, dir);
+        var allDays = Enumerable.Range(0, to.DayNumber - from.DayNumber + 1).Select(i => from.AddDays(i)).ToArray();
+
+        var missingAfrr = allDays.Where(d => !afrrExisting.Contains((d, region.Code, dir))).ToArray();
+        var missingMfrr = Array.Empty<DateOnly>();
+        var totalSlices = Math.Max(1, missingAfrr.Length);
+        var completedSlices = 0;
+        UpdateFetchProgress(0, totalSlices);
+
+        foreach (var day in missingAfrr)
+        {
+            var rows = await _service.FetchRawPointsAsync(day, day, new[] { region }, direction);
+            if (rows.Count > 0)
+            {
+                _database.SaveScrapedPoints(rows);
+            }
+            completedSlices++;
+            UpdateFetchProgress(completedSlices, totalSlices);
+        }
+
+        var mfrrExisting = _database.LoadExistingMfrrDayRegionDirection(from, to, new[] { region.Code }, dir);
+        missingMfrr = allDays.Where(d => !mfrrExisting.Contains((d, region.Code, dir))).ToArray();
+        totalSlices = Math.Max(1, missingAfrr.Length + missingMfrr.Length);
+        UpdateFetchProgress(completedSlices, totalSlices);
+        foreach (var day in missingMfrr)
+        {
+            var rows = await _service.FetchRawPointsAsync(day, day, new[] { region }, direction, MarketType.Mfrr);
+            if (rows.Count > 0)
+            {
+                _database.SaveMfrrScrapedPoints(rows);
+            }
+            completedSlices++;
+            UpdateFetchProgress(completedSlices, totalSlices);
+        }
+
+        var afrr = NucsAfrrService.BuildHourlySummariesFromRaw(_database.LoadBySelection(from, to, new[] { region.Code }, dir));
+        var mfrr = NucsAfrrService.BuildHourlySummariesFromRaw(_database.LoadMfrrBySelection(from, to, new[] { region.Code }, dir));
+        AfrrMfrrComparisonPlot.Model = CreateMaxBidComparisonPlot(region.Code, afrr, mfrr);
     }
 
-    private void ResultsExpander_OnCollapsed(object sender, RoutedEventArgs e)
+    private static PlotModel CreateEmptyComparisonPlot()
     {
-        ResultsRowDefinition.Height = GridLength.Auto;
-        GraphRowDefinition.Height = new GridLength(1, GridUnitType.Star);
+        var model = new PlotModel { Title = "Max accepted bid price comparison", IsLegendVisible = true };
+        model.Legends.Add(new Legend { LegendTitle = "Market", LegendPosition = LegendPosition.TopRight });
+        model.Axes.Add(new DateTimeAxis { Position = AxisPosition.Bottom, StringFormat = "yyyy-MM-dd", IntervalType = DateTimeIntervalType.Days, Angle = 30 });
+        model.Axes.Add(new LinearAxis { Position = AxisPosition.Left, Title = "Max price (€/MW)" });
+        return model;
     }
+
+    private static PlotModel CreateMaxBidComparisonPlot(string regionCode, IEnumerable<AfrrHourSummary> afrr, IEnumerable<AfrrHourSummary> mfrr)
+    {
+        var model = new PlotModel { Title = $"Max accepted bid price comparison ({regionCode})", IsLegendVisible = true };
+        model.Legends.Add(new Legend { LegendTitle = "Market", LegendPosition = LegendPosition.TopRight });
+        model.Axes.Add(new DateTimeAxis { Position = AxisPosition.Bottom, StringFormat = "yyyy-MM-dd", IntervalType = DateTimeIntervalType.Days, Angle = 30 });
+        model.Axes.Add(new LinearAxis { Position = AxisPosition.Left, Title = "Max price (€/MW)" });
+
+        var afrrLine = new LineSeries { Title = "aFRR Max Bid", StrokeThickness = 2, Color = OxyColors.SteelBlue };
+        foreach (var p in afrr.GroupBy(x => x.Day).Select(g => new { Day = g.Key, Max = g.Max(x => x.PriceMax) }).OrderBy(x => x.Day))
+            afrrLine.Points.Add(new DataPoint(DateTimeAxis.ToDouble(p.Day.ToDateTime(TimeOnly.MinValue)), p.Max));
+
+        var mfrrLine = new LineSeries { Title = "mFRR Max Bid", StrokeThickness = 2, Color = OxyColors.OrangeRed };
+        foreach (var p in mfrr.GroupBy(x => x.Day).Select(g => new { Day = g.Key, Max = g.Max(x => x.PriceMax) }).OrderBy(x => x.Day))
+            mfrrLine.Points.Add(new DataPoint(DateTimeAxis.ToDouble(p.Day.ToDateTime(TimeOnly.MinValue)), p.Max));
+
+        model.Series.Add(afrrLine);
+        model.Series.Add(mfrrLine);
+        return model;
+    }
+
+
+
+    private void AnyExpander_OnStateChanged(object sender, RoutedEventArgs e)
+    {
+        UpdateExpanderRowHeights(sender as FrameworkElement);
+    }
+
+    private void UpdateExpanderRowHeights(FrameworkElement? toggledExpander = null)
+    {
+        var skipResultsCapture = ReferenceEquals(toggledExpander, ResultsExpander);
+        var skipDailyCapture = ReferenceEquals(toggledExpander, DailyGraphExpander);
+        var skipComparisonCapture = ReferenceEquals(toggledExpander, ComparisonGraphExpander);
+
+        if (!skipResultsCapture && ResultsExpander?.IsExpanded == true && ResultsRowDefinition.ActualHeight > 0)
+        {
+            _resultsWeight = ResultsRowDefinition.ActualHeight;
+        }
+
+        if (!skipDailyCapture && DailyGraphExpander?.IsExpanded == true && GraphRowDefinition.ActualHeight > 0)
+        {
+            _dailyGraphWeight = GraphRowDefinition.ActualHeight;
+        }
+
+        if (!skipComparisonCapture && ComparisonGraphExpander?.IsExpanded == true && ComparisonGraphRowDefinition.ActualHeight > 0)
+        {
+            _comparisonGraphWeight = ComparisonGraphRowDefinition.ActualHeight;
+        }
+
+        ResultsRowDefinition.Height = ResultsExpander?.IsExpanded == true
+            ? new GridLength(Math.Max(1, _resultsWeight), GridUnitType.Star)
+            : GridLength.Auto;
+
+        GraphRowDefinition.Height = DailyGraphExpander?.IsExpanded == true
+            ? new GridLength(Math.Max(1, _dailyGraphWeight), GridUnitType.Star)
+            : GridLength.Auto;
+
+        ComparisonGraphRowDefinition.Height = ComparisonGraphExpander?.IsExpanded == true
+            ? new GridLength(Math.Max(1, _comparisonGraphWeight), GridUnitType.Star)
+            : GridLength.Auto;
+    }
+
+
 }
