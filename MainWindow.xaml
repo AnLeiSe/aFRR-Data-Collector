@@ -122,7 +122,7 @@
                       ResizeDirection="Rows"
                       ResizeBehavior="PreviousAndNext" />
 
-        <Expander Grid.Row="4" Header="Graph for Dayly Market Volume" IsExpanded="True" Margin="0,10,0,10">
+        <Expander Grid.Row="4" Header="Graph for Daily Market Volume" IsExpanded="True" Margin="0,10,0,10">
             <Border BorderBrush="#DDD" BorderThickness="1" CornerRadius="6" Padding="8">
                 <Grid>
                     <Grid.RowDefinitions>
