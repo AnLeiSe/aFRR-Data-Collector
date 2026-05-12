@@ -40,12 +40,18 @@ public partial class MainWindow : Window
         RegionsListBox.ItemsSource = Regions;
         DirectionComboBox.ItemsSource = Enum.GetValues<RegulationDirection>();
         DirectionComboBox.SelectedItem = RegulationDirection.Up;
+        CompareRegionComboBox.ItemsSource = Regions;
+        CompareRegionComboBox.DisplayMemberPath = "Code";
+        CompareRegionComboBox.SelectedIndex = 0;
+        CompareDirectionComboBox.ItemsSource = Enum.GetValues<RegulationDirection>();
+        CompareDirectionComboBox.SelectedItem = RegulationDirection.Up;
 
         FromDatePicker.SelectedDate = DateTime.Today.AddDays(-7);
         ToDatePicker.SelectedDate = DateTime.Today;
 
         ResultsDataGrid.ItemsSource = _rows;
         DailyVolumePlot.Model = CreateEmptyPlot();
+        AfrrMfrrComparisonPlot.Model = CreateEmptyComparisonPlot();
     }
 
     private async void FetchButton_OnClick(object sender, RoutedEventArgs e)
@@ -141,6 +147,11 @@ public partial class MainWindow : Window
             if (fetchedRawPoints.Count > 0)
             {
                 _database.SaveScrapedPoints(fetchedRawPoints);
+                var mfrrPoints = await _service.FetchRawPointsAsync(fromDate, toDate, selectedRegions, direction.Value, MarketType.Mfrr);
+                if (mfrrPoints.Count > 0)
+                {
+                    _database.SaveMfrrScrapedPoints(mfrrPoints);
+                }
             }
 
             var rawPoints = _database.LoadBySelection(fromDate, toDate, selectedRegionCodes, directionText);
@@ -279,6 +290,26 @@ public partial class MainWindow : Window
         StatusText.Text = $"Graph exported: {dialog.FileName}";
     }
 
+
+
+    private void ExportCompareGraphButton_OnClick(object sender, RoutedEventArgs e)
+    {
+        if (AfrrMfrrComparisonPlot.Model is null)
+        {
+            MessageBox.Show("No comparison graph available to export yet.", "Export graph", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        var dialog = new SaveFileDialog { Filter = "PNG image (*.png)|*.png|SVG vector (*.svg)|*.svg", FileName = "afrr-mfrr-max-bid-graph" };
+        if (dialog.ShowDialog() != true) return;
+        var ext = System.IO.Path.GetExtension(dialog.FileName).ToLowerInvariant();
+        var width = (int)Math.Max(1, AfrrMfrrComparisonPlot.ActualWidth);
+        var height = (int)Math.Max(1, AfrrMfrrComparisonPlot.ActualHeight);
+        using var stream = File.Create(dialog.FileName);
+        if (ext == ".svg") new OxyPlot.SvgExporter { Width = width, Height = height, IsDocument = true }.Export(AfrrMfrrComparisonPlot.Model, stream);
+        else new OxyPlot.Wpf.PngExporter { Width = width, Height = height }.Export(AfrrMfrrComparisonPlot.Model, stream);
+    }
+
     private static PlotModel CreateEmptyPlot()
     {
         var model = new PlotModel { Title = "Daily traded volume (Total MW * Price Max)", IsLegendVisible = true };
@@ -312,6 +343,77 @@ public partial class MainWindow : Window
 
             model.Series.Add(line);
         }
+        return model;
+    }
+
+
+
+    private async void RenderCompareGraphButton_OnClick(object sender, RoutedEventArgs e)
+    {
+        if (CompareRegionComboBox.SelectedItem is not RegionOption region || CompareDirectionComboBox.SelectedItem is not RegulationDirection direction)
+        {
+            return;
+        }
+
+        var from = DateOnly.FromDateTime(FromDatePicker.SelectedDate ?? DateTime.Today.AddDays(-7));
+        var to = DateOnly.FromDateTime(ToDatePicker.SelectedDate ?? DateTime.Today);
+        var dir = direction == RegulationDirection.Up ? "UP" : "DOWN";
+
+        var afrrExisting = _database.LoadExistingDayRegionDirection(from, to, new[] { region.Code }, dir);
+        var allDays = Enumerable.Range(0, to.DayNumber - from.DayNumber + 1).Select(i => from.AddDays(i)).ToArray();
+
+        var missingAfrr = allDays.Where(d => !afrrExisting.Contains((d, region.Code, dir))).ToArray();
+        foreach (var day in missingAfrr)
+        {
+            var rows = await _service.FetchRawPointsAsync(day, day, new[] { region }, direction);
+            if (rows.Count > 0)
+            {
+                _database.SaveScrapedPoints(rows);
+            }
+        }
+
+        var mfrrExisting = _database.LoadExistingMfrrDayRegionDirection(from, to, new[] { region.Code }, dir);
+        var missingMfrr = allDays.Where(d => !mfrrExisting.Contains((d, region.Code, dir))).ToArray();
+        foreach (var day in missingMfrr)
+        {
+            var rows = await _service.FetchRawPointsAsync(day, day, new[] { region }, direction, MarketType.Mfrr);
+            if (rows.Count > 0)
+            {
+                _database.SaveMfrrScrapedPoints(rows);
+            }
+        }
+
+        var afrr = NucsAfrrService.BuildHourlySummariesFromRaw(_database.LoadBySelection(from, to, new[] { region.Code }, dir));
+        var mfrr = NucsAfrrService.BuildHourlySummariesFromRaw(_database.LoadMfrrBySelection(from, to, new[] { region.Code }, dir));
+        AfrrMfrrComparisonPlot.Model = CreateMaxBidComparisonPlot(region.Code, afrr, mfrr);
+    }
+
+    private static PlotModel CreateEmptyComparisonPlot()
+    {
+        var model = new PlotModel { Title = "Max accepted bid price comparison", IsLegendVisible = true };
+        model.Legends.Add(new Legend { LegendTitle = "Market", LegendPosition = LegendPosition.TopRight });
+        model.Axes.Add(new DateTimeAxis { Position = AxisPosition.Bottom, StringFormat = "yyyy-MM-dd", IntervalType = DateTimeIntervalType.Days, Angle = 30 });
+        model.Axes.Add(new LinearAxis { Position = AxisPosition.Left, Title = "Max price (€/MW)" });
+        return model;
+    }
+
+    private static PlotModel CreateMaxBidComparisonPlot(string regionCode, IEnumerable<AfrrHourSummary> afrr, IEnumerable<AfrrHourSummary> mfrr)
+    {
+        var model = new PlotModel { Title = $"Max accepted bid price comparison ({regionCode})", IsLegendVisible = true };
+        model.Legends.Add(new Legend { LegendTitle = "Market", LegendPosition = LegendPosition.TopRight });
+        model.Axes.Add(new DateTimeAxis { Position = AxisPosition.Bottom, StringFormat = "yyyy-MM-dd", IntervalType = DateTimeIntervalType.Days, Angle = 30 });
+        model.Axes.Add(new LinearAxis { Position = AxisPosition.Left, Title = "Max price (€/MW)" });
+
+        var afrrLine = new LineSeries { Title = "aFRR Max Bid", StrokeThickness = 2, Color = OxyColors.SteelBlue };
+        foreach (var p in afrr.GroupBy(x => x.Day).Select(g => new { Day = g.Key, Max = g.Max(x => x.PriceMax) }).OrderBy(x => x.Day))
+            afrrLine.Points.Add(new DataPoint(DateTimeAxis.ToDouble(p.Day.ToDateTime(TimeOnly.MinValue)), p.Max));
+
+        var mfrrLine = new LineSeries { Title = "mFRR Max Bid", StrokeThickness = 2, Color = OxyColors.OrangeRed };
+        foreach (var p in mfrr.GroupBy(x => x.Day).Select(g => new { Day = g.Key, Max = g.Max(x => x.PriceMax) }).OrderBy(x => x.Day))
+            mfrrLine.Points.Add(new DataPoint(DateTimeAxis.ToDouble(p.Day.ToDateTime(TimeOnly.MinValue)), p.Max));
+
+        model.Series.Add(afrrLine);
+        model.Series.Add(mfrrLine);
         return model;
     }
 
