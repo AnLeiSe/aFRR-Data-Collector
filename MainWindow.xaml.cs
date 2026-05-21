@@ -371,9 +371,23 @@ public partial class MainWindow : Window
         var completedSlices = 0;
         UpdateFetchProgress(0, totalSlices);
 
+        var skippedSlices = new List<string>();
+
         foreach (var day in missingAfrr)
         {
-            var rows = await _service.FetchRawPointsAsync(day, day, new[] { region }, direction);
+            IReadOnlyList<ScrapedDataPoint> rows;
+            try
+            {
+                rows = await _service.FetchRawPointsAsync(day, day, new[] { region }, direction);
+            }
+            catch (InvalidOperationException ex) when (ex.Message.Contains("no parsable rows", StringComparison.OrdinalIgnoreCase))
+            {
+                skippedSlices.Add($"aFRR {region.Code} {day:yyyy-MM-dd}");
+                completedSlices++;
+                UpdateFetchProgress(completedSlices, totalSlices);
+                continue;
+            }
+
             if (rows.Count > 0)
             {
                 _database.SaveScrapedPoints(rows);
@@ -388,13 +402,32 @@ public partial class MainWindow : Window
         UpdateFetchProgress(completedSlices, totalSlices);
         foreach (var day in missingMfrr)
         {
-            var rows = await _service.FetchRawPointsAsync(day, day, new[] { region }, direction, MarketType.Mfrr);
+            IReadOnlyList<ScrapedDataPoint> rows;
+            try
+            {
+                rows = await _service.FetchRawPointsAsync(day, day, new[] { region }, direction, MarketType.Mfrr);
+            }
+            catch (InvalidOperationException ex) when (ex.Message.Contains("no parsable rows", StringComparison.OrdinalIgnoreCase))
+            {
+                skippedSlices.Add($"mFRR {region.Code} {day:yyyy-MM-dd}");
+                completedSlices++;
+                UpdateFetchProgress(completedSlices, totalSlices);
+                continue;
+            }
+
             if (rows.Count > 0)
             {
                 _database.SaveMfrrScrapedPoints(rows);
             }
             completedSlices++;
             UpdateFetchProgress(completedSlices, totalSlices);
+        }
+
+        if (skippedSlices.Count > 0)
+        {
+            var preview = string.Join(", ", skippedSlices.Take(8));
+            var extra = skippedSlices.Count > 8 ? $" (+{skippedSlices.Count - 8} more)" : string.Empty;
+            StatusText.Text = $"Some day slices were skipped due to missing market rows: {preview}{extra}";
         }
 
         var afrr = NucsAfrrService.BuildHourlySummariesFromRaw(_database.LoadBySelection(from, to, new[] { region.Code }, dir));
