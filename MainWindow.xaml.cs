@@ -96,6 +96,7 @@ public partial class MainWindow : Window
             var selectedRegionCodes = selectedRegions.Select(x => x.Code).ToArray();
 
             var existingKeys = _database.LoadExistingDayRegionDirection(fromDate, toDate, selectedRegionCodes, directionText);
+            var incompleteKeys = _database.LoadIncompleteDayRegionDirection(fromDate, toDate, selectedRegionCodes, directionText);
 
             var missingDaysPerRegion = selectedRegions
                 .Select(region => new
@@ -104,7 +105,7 @@ public partial class MainWindow : Window
                     MissingDays = Enumerable
                         .Range(0, toDate.DayNumber - fromDate.DayNumber + 1)
                         .Select(offset => fromDate.AddDays(offset))
-                        .Where(day => !existingKeys.Contains((day, region.Code, directionText)))
+                        .Where(day => !existingKeys.Contains((day, region.Code, directionText)) || incompleteKeys.Contains((day, region.Code, directionText)))
                         .ToArray()
                 })
                 .Where(x => x.MissingDays.Length > 0)
@@ -137,6 +138,7 @@ public partial class MainWindow : Window
                         continue;
                     }
 
+                    _database.DeleteDayRegionDirection(day, missing.Region.Code, directionText);
                     fetchedRawPoints.AddRange(rows);
                     completedSlices++;
                     UpdateFetchProgress(completedSlices, Math.Max(1, totalSlices));

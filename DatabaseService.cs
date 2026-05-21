@@ -76,6 +76,73 @@ VALUES($d,$r,$z,$dir,$p,$h1,$h2,$h3,$h4,$h5,$h6,$h7,$h8,$h9,$h10,$h11,$h12,$h13,
         return existing;
     }
 
+    
+    public IReadOnlySet<(DateOnly Day, string RegionCode, string Direction)> LoadIncompleteDayRegionDirection(DateOnly from, DateOnly to, IReadOnlyCollection<string> regionCodes, string direction)
+        => LoadIncompleteDayRegionDirection(from, to, regionCodes, direction, "scraped_points");
+
+    private IReadOnlySet<(DateOnly Day, string RegionCode, string Direction)> LoadIncompleteDayRegionDirection(DateOnly from, DateOnly to, IReadOnlyCollection<string> regionCodes, string direction, string table)
+    {
+        EnsureCreated();
+        var incomplete = new HashSet<(DateOnly, string, string)>();
+        if (regionCodes.Count == 0) return incomplete;
+
+        using var c = new SqliteConnection(ConnectionString);
+        c.Open();
+        var cmd = c.CreateCommand();
+        var placeholders = new List<string>();
+        var i = 0;
+        foreach (var code in regionCodes)
+        {
+            var parameter = $"$r{i++}";
+            placeholders.Add(parameter);
+            cmd.Parameters.AddWithValue(parameter, code);
+        }
+
+        cmd.CommandText = $@"SELECT day, region_code, direction
+FROM {table}
+WHERE day >= $from AND day <= $to AND UPPER(direction)=UPPER($direction)
+AND (region_code IN ({string.Join(',', placeholders)}) OR bidding_zone IN ({string.Join(',', placeholders)}))
+AND (
+price_offered = 0 OR
+hour01 = 0 OR hour02 = 0 OR hour03 = 0 OR hour04 = 0 OR hour05 = 0 OR hour06 = 0 OR
+hour07 = 0 OR hour08 = 0 OR hour09 = 0 OR hour10 = 0 OR hour11 = 0 OR hour12 = 0 OR
+hour13 = 0 OR hour14 = 0 OR hour15 = 0 OR hour16 = 0 OR hour17 = 0 OR hour18 = 0 OR
+hour19 = 0 OR hour20 = 0 OR hour21 = 0 OR hour22 = 0 OR hour23 = 0 OR hour24 = 0
+);";
+
+        cmd.Parameters.AddWithValue("$from", from.ToString("yyyy-MM-dd"));
+        cmd.Parameters.AddWithValue("$to", to.ToString("yyyy-MM-dd"));
+        cmd.Parameters.AddWithValue("$direction", direction);
+
+        using var r = cmd.ExecuteReader();
+        while (r.Read())
+        {
+            if (!DateOnly.TryParse(r.GetString(0), out var day)) continue;
+            incomplete.Add((day, r.GetString(1), r.GetString(2).ToUpperInvariant()));
+        }
+
+        return incomplete;
+    }
+
+    public void DeleteDayRegionDirection(DateOnly day, string regionCode, string direction)
+        => DeleteDayRegionDirection(day, regionCode, direction, "scraped_points");
+
+    private void DeleteDayRegionDirection(DateOnly day, string regionCode, string direction, string table)
+    {
+        EnsureCreated();
+        using var c = new SqliteConnection(ConnectionString);
+        c.Open();
+        var cmd = c.CreateCommand();
+        cmd.CommandText = $@"DELETE FROM {table}
+WHERE day = $day
+AND UPPER(direction) = UPPER($direction)
+AND (region_code = $region OR bidding_zone = $region);";
+        cmd.Parameters.AddWithValue("$day", day.ToString("yyyy-MM-dd"));
+        cmd.Parameters.AddWithValue("$direction", direction);
+        cmd.Parameters.AddWithValue("$region", regionCode);
+        cmd.ExecuteNonQuery();
+    }
+
     public IReadOnlyList<ScrapedDataPoint> LoadBySelection(DateOnly from, DateOnly to, IReadOnlyCollection<string> regionCodes, string direction)
         => LoadBySelection(from, to, regionCodes, direction, "scraped_points");
     public IReadOnlyList<ScrapedDataPoint> LoadMfrrBySelection(DateOnly from, DateOnly to, IReadOnlyCollection<string> regionCodes, string direction)
