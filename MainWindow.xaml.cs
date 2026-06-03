@@ -124,6 +124,21 @@ public partial class MainWindow : Window
                 .Where(x => x.MissingDays.Length > 0)
                 .ToArray();
 
+            var mfrrExistingKeys = _database.LoadExistingMfrrDayRegionDirection(fromDate, toDate, selectedRegionCodes, directionText);
+            var mfrrIncompleteKeys = _database.LoadIncompleteMfrrDayRegionDirection(fromDate, toDate, selectedRegionCodes, directionText);
+            var missingMfrrDaysPerRegion = selectedRegions
+                .Select(region => new
+                {
+                    Region = region,
+                    MissingDays = Enumerable
+                        .Range(0, toDate.DayNumber - fromDate.DayNumber + 1)
+                        .Select(offset => fromDate.AddDays(offset))
+                        .Where(day => !mfrrExistingKeys.Contains((day, region.Code, directionText)) || mfrrIncompleteKeys.Contains((day, region.Code, directionText)))
+                        .ToArray()
+                })
+                .Where(x => x.MissingDays.Length > 0)
+                .ToArray();
+
             var fetchedRawPoints = new List<ScrapedDataPoint>();
             var totalSlices = missingDaysPerRegion.Sum(x => x.MissingDays.Length) + missingMfrrDaysPerRegion.Sum(x => x.MissingDays.Length);
             var completedSlices = 0;
@@ -419,13 +434,15 @@ public partial class MainWindow : Window
             var allDays = Enumerable.Range(0, to.DayNumber - from.DayNumber + 1).Select(i => from.AddDays(i)).ToArray();
 
             var afrrExisting = _database.LoadExistingDayRegionDirection(from, to, regionCodes, dir);
+            var afrrIncomplete = _database.LoadIncompleteDayRegionDirection(from, to, regionCodes, dir);
             var mfrrExisting = _database.LoadExistingMfrrDayRegionDirection(from, to, regionCodes, dir);
+            var mfrrIncomplete = _database.LoadIncompleteMfrrDayRegionDirection(from, to, regionCodes, dir);
 
             var missingAfrr = allDays
-                .Where(d => !afrrExisting.Contains((d, region.Code, dir)))
+                .Where(d => !afrrExisting.Contains((d, region.Code, dir)) || afrrIncomplete.Contains((d, region.Code, dir)))
                 .ToArray();
             var missingMfrr = allDays
-                .Where(d => !mfrrExisting.Contains((d, region.Code, dir)))
+                .Where(d => !mfrrExisting.Contains((d, region.Code, dir)) || mfrrIncomplete.Contains((d, region.Code, dir)))
                 .ToArray();
 
             var totalSlices = missingAfrr.Length + missingMfrr.Length;

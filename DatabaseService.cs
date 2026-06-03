@@ -99,6 +99,44 @@ AND (region_code IN ({string.Join(',', placeholders)}) OR bidding_zone IN ({stri
         return existing;
     }
 
+    
+    public IReadOnlySet<(DateOnly Day, string RegionCode, string Direction)> LoadIncompleteDayRegionDirection(DateOnly from, DateOnly to, IReadOnlyCollection<string> regionCodes, string direction)
+        => LoadIncompleteDayRegionDirection(from, to, regionCodes, direction, "scraped_points");
+    public IReadOnlySet<(DateOnly Day, string RegionCode, string Direction)> LoadIncompleteMfrrDayRegionDirection(DateOnly from, DateOnly to, IReadOnlyCollection<string> regionCodes, string direction)
+        => LoadIncompleteDayRegionDirection(from, to, regionCodes, direction, "mfrr_scraped_points");
+
+    private IReadOnlySet<(DateOnly Day, string RegionCode, string Direction)> LoadIncompleteDayRegionDirection(DateOnly from, DateOnly to, IReadOnlyCollection<string> regionCodes, string direction, string table)
+    {
+        EnsureCreated();
+        var incomplete = new HashSet<(DateOnly, string, string)>();
+        var regionCodeSet = regionCodes.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (regionCodes.Count == 0) return incomplete;
+
+        using var c = new SqliteConnection(ConnectionString);
+        c.Open();
+        var cmd = c.CreateCommand();
+        var placeholders = AddRegionParameters(cmd, regionCodes);
+
+        cmd.CommandText = $@"SELECT day, region_code, bidding_zone, direction
+FROM {table}
+WHERE day >= $from AND day <= $to AND UPPER(direction)=UPPER($direction)
+AND (region_code IN ({string.Join(',', placeholders)}) OR bidding_zone IN ({string.Join(',', placeholders)}));";
+        cmd.Parameters.AddWithValue("$from", from.ToString("yyyy-MM-dd"));
+        cmd.Parameters.AddWithValue("$to", to.ToString("yyyy-MM-dd"));
+        cmd.Parameters.AddWithValue("$direction", direction);
+
+        using var r = cmd.ExecuteReader();
+        while (r.Read())
+        {
+            if (!DateOnly.TryParse(r.GetString(0), out var day)) continue;
+            var directionText = r.GetString(3).ToUpperInvariant();
+            if (regionCodeSet.Contains(r.GetString(1))) incomplete.Add((day, r.GetString(1), directionText));
+            if (regionCodeSet.Contains(r.GetString(2))) incomplete.Add((day, r.GetString(2), directionText));
+        }
+
+        return existing;
+    }
+
 
     public void DeleteDayRegionDirection(DateOnly day, string regionCode, string direction)
         => DeleteDayRegionDirection(day, regionCode, direction, "scraped_points");
