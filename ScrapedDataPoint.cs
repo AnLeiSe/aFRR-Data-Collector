@@ -33,6 +33,24 @@ public sealed class ScrapedDataPoint
     public double Hour24 { get; set; }
     public string ReferenceId { get; set; } = string.Empty;
 
+
+    public static ScrapedDataPoint CreateNoDataSentinel(DateOnly day, RegionOption region, RegulationDirection direction)
+        => new()
+        {
+            Day = day,
+            RegionCode = region.Code,
+            BiddingZone = region.Code,
+            Direction = direction == RegulationDirection.Up ? "UP" : "DOWN",
+            PriceOfferedEuroPerMw = -1,
+            Hour01 = -1, Hour02 = -1, Hour03 = -1, Hour04 = -1, Hour05 = -1, Hour06 = -1,
+            Hour07 = -1, Hour08 = -1, Hour09 = -1, Hour10 = -1, Hour11 = -1, Hour12 = -1,
+            Hour13 = -1, Hour14 = -1, Hour15 = -1, Hour16 = -1, Hour17 = -1, Hour18 = -1,
+            Hour19 = -1, Hour20 = -1, Hour21 = -1, Hour22 = -1, Hour23 = -1, Hour24 = -1,
+            ReferenceId = "NO_DATA"
+        };
+
+    public bool IsNoDataSentinel => ReferenceId == "NO_DATA" && HourlyValues().All(x => x.Mw == -1);
+
     private static double NormalizeHour(double value)
         => double.IsFinite(value) ? value : 0;
 
