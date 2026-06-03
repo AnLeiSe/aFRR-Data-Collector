@@ -91,6 +91,7 @@ public sealed class NucsAfrrService
     public static IReadOnlyList<AfrrHourSummary> BuildHourlySummariesFromRaw(IEnumerable<ScrapedDataPoint> rawPoints)
     {
         return rawPoints
+            .Where(x => !x.IsNoDataSentinel)
             .SelectMany(x => x.HourlyValues().Select(h => new { x.BiddingZone, x.Day, h.Time, h.Mw, x.PriceOfferedEuroPerMw }))
             .GroupBy(x => new { x.BiddingZone, x.Day, x.Time })
             .Select(g => new AfrrHourSummary
