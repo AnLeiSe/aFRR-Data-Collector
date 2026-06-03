@@ -86,7 +86,7 @@ public partial class MainWindow : Window
             }
 
             FetchButton.IsEnabled = false;
-            StatusText.Text = "Fetching data from NUCS...";
+            StatusText.Text = "Checking database for cached data...";
             ErrorMessageTextBox.Text = string.Empty;
             UpdateFetchProgress(0, 1);
 
@@ -96,7 +96,6 @@ public partial class MainWindow : Window
             var selectedRegionCodes = selectedRegions.Select(x => x.Code).ToArray();
 
             var existingKeys = _database.LoadExistingDayRegionDirection(fromDate, toDate, selectedRegionCodes, directionText);
-            var incompleteKeys = _database.LoadIncompleteDayRegionDirection(fromDate, toDate, selectedRegionCodes, directionText);
 
             var missingDaysPerRegion = selectedRegions
                 .Select(region => new
@@ -105,16 +104,33 @@ public partial class MainWindow : Window
                     MissingDays = Enumerable
                         .Range(0, toDate.DayNumber - fromDate.DayNumber + 1)
                         .Select(offset => fromDate.AddDays(offset))
-                        .Where(day => !existingKeys.Contains((day, region.Code, directionText)) || incompleteKeys.Contains((day, region.Code, directionText)))
+                        .Where(day => !existingKeys.Contains((day, region.Code, directionText)))
+                        .ToArray()
+                })
+                .Where(x => x.MissingDays.Length > 0)
+                .ToArray();
+
+            var mfrrExistingKeys = _database.LoadExistingMfrrDayRegionDirection(fromDate, toDate, selectedRegionCodes, directionText);
+            var missingMfrrDaysPerRegion = selectedRegions
+                .Select(region => new
+                {
+                    Region = region,
+                    MissingDays = Enumerable
+                        .Range(0, toDate.DayNumber - fromDate.DayNumber + 1)
+                        .Select(offset => fromDate.AddDays(offset))
+                        .Where(day => !mfrrExistingKeys.Contains((day, region.Code, directionText)))
                         .ToArray()
                 })
                 .Where(x => x.MissingDays.Length > 0)
                 .ToArray();
 
             var fetchedRawPoints = new List<ScrapedDataPoint>();
-            var totalSlices = missingDaysPerRegion.Sum(x => x.MissingDays.Length);
+            var totalSlices = missingDaysPerRegion.Sum(x => x.MissingDays.Length) + missingMfrrDaysPerRegion.Sum(x => x.MissingDays.Length);
             var completedSlices = 0;
             var skippedSlices = new List<string>();
+            StatusText.Text = totalSlices > 0
+                ? $"Fetching {totalSlices} missing day-market slice(s) from NUCS..."
+                : "Loading data from database...";
             UpdateFetchProgress(0, Math.Max(1, totalSlices));
 
             foreach (var missing in missingDaysPerRegion)
@@ -153,10 +169,32 @@ public partial class MainWindow : Window
             if (fetchedRawPoints.Count > 0)
             {
                 _database.SaveScrapedPoints(fetchedRawPoints);
-                var mfrrPoints = await _service.FetchRawPointsAsync(fromDate, toDate, selectedRegions, direction.Value, MarketType.Mfrr);
-                if (mfrrPoints.Count > 0)
+            }
+
+            foreach (var missing in missingMfrrDaysPerRegion)
+            {
+                foreach (var day in missing.MissingDays)
                 {
-                    _database.SaveMfrrScrapedPoints(mfrrPoints);
+                    IReadOnlyList<ScrapedDataPoint> rows;
+                    try
+                    {
+                        rows = await _service.FetchRawPointsAsync(day, day, new[] { missing.Region }, direction.Value, MarketType.Mfrr);
+                    }
+                    catch (InvalidOperationException ex) when (ex.Message.Contains("no parsable rows", StringComparison.OrdinalIgnoreCase))
+                    {
+                        skippedSlices.Add($"mFRR {missing.Region.Code} {day:yyyy-MM-dd}");
+                        completedSlices++;
+                        UpdateFetchProgress(completedSlices, Math.Max(1, totalSlices));
+                        continue;
+                    }
+
+                    _database.DeleteMfrrDayRegionDirection(day, missing.Region.Code, directionText);
+                    if (rows.Count > 0)
+                    {
+                        _database.SaveMfrrScrapedPoints(rows);
+                    }
+                    completedSlices++;
+                    UpdateFetchProgress(completedSlices, Math.Max(1, totalSlices));
                 }
             }
 
@@ -173,7 +211,8 @@ public partial class MainWindow : Window
             DailyVolumePlot.Model = CreateDailyVolumePlot(daily);
 
             var dayCount = hourly.Select(x => x.Day).Distinct().Count();
-            StatusText.Text = $"Done. {hourly.Count} hourly rows across {dayCount} day(s). Loaded {rawPoints.Count} raw rows from DB, fetched {fetchedRawPoints.Count} new rows.";
+            var fetchedMfrrSlices = missingMfrrDaysPerRegion.Sum(x => x.MissingDays.Length);
+            StatusText.Text = $"Done. {hourly.Count} hourly rows across {dayCount} day(s). Loaded {rawPoints.Count} raw rows from DB, fetched {fetchedRawPoints.Count} new aFRR rows and {fetchedMfrrSlices} missing mFRR day-region slice(s).";
             ErrorMessageTextBox.Text = string.Empty;
 
             if (skippedSlices.Count > 0)
@@ -361,80 +400,115 @@ public partial class MainWindow : Window
             return;
         }
 
-        var from = DateOnly.FromDateTime(FromDatePicker.SelectedDate ?? DateTime.Today.AddDays(-7));
-        var to = DateOnly.FromDateTime(ToDatePicker.SelectedDate ?? DateTime.Today);
-        var dir = direction == RegulationDirection.Up ? "UP" : "DOWN";
-
-        var afrrExisting = _database.LoadExistingDayRegionDirection(from, to, new[] { region.Code }, dir);
-        var allDays = Enumerable.Range(0, to.DayNumber - from.DayNumber + 1).Select(i => from.AddDays(i)).ToArray();
-
-        var missingAfrr = allDays.Where(d => !afrrExisting.Contains((d, region.Code, dir))).ToArray();
-        var totalSlices = Math.Max(1, missingAfrr.Length);
-        var completedSlices = 0;
-        UpdateFetchProgress(0, totalSlices);
-
-        var skippedSlices = new List<string>();
-
-        foreach (var day in missingAfrr)
+        try
         {
-            IReadOnlyList<ScrapedDataPoint> rows;
-            try
+            RenderCompareGraphButton.IsEnabled = false;
+            ErrorMessageTextBox.Text = string.Empty;
+            StatusText.Text = "Checking database for comparison data...";
+
+            var from = DateOnly.FromDateTime(FromDatePicker.SelectedDate ?? DateTime.Today.AddDays(-7));
+            var to = DateOnly.FromDateTime(ToDatePicker.SelectedDate ?? DateTime.Today);
+            if (from > to)
             {
-                rows = await _service.FetchRawPointsAsync(day, day, new[] { region }, direction);
+                MessageBox.Show("Select a From date that is on or before the To date.", "Input error", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
             }
-            catch (InvalidOperationException ex) when (ex.Message.Contains("no parsable rows", StringComparison.OrdinalIgnoreCase))
+
+            var dir = direction == RegulationDirection.Up ? "UP" : "DOWN";
+            var regionCodes = new[] { region.Code };
+            var allDays = Enumerable.Range(0, to.DayNumber - from.DayNumber + 1).Select(i => from.AddDays(i)).ToArray();
+
+            var afrrExisting = _database.LoadExistingDayRegionDirection(from, to, regionCodes, dir);
+            var mfrrExisting = _database.LoadExistingMfrrDayRegionDirection(from, to, regionCodes, dir);
+
+            var missingAfrr = allDays
+                .Where(d => !afrrExisting.Contains((d, region.Code, dir)))
+                .ToArray();
+            var missingMfrr = allDays
+                .Where(d => !mfrrExisting.Contains((d, region.Code, dir)))
+                .ToArray();
+
+            var totalSlices = missingAfrr.Length + missingMfrr.Length;
+            var completedSlices = 0;
+            var skippedSlices = new List<string>();
+
+            if (totalSlices > 0)
             {
-                skippedSlices.Add($"aFRR {region.Code} {day:yyyy-MM-dd}");
+                StatusText.Text = $"Fetching {totalSlices} missing comparison day-market slice(s) from NUCS...";
+                UpdateFetchProgress(0, totalSlices);
+            }
+            else
+            {
+                StatusText.Text = "Loading comparison data from database...";
+                UpdateFetchProgress(1, 1);
+            }
+
+            foreach (var day in missingAfrr)
+            {
+                IReadOnlyList<ScrapedDataPoint> rows;
+                try
+                {
+                    rows = await _service.FetchRawPointsAsync(day, day, new[] { region }, direction);
+                }
+                catch (InvalidOperationException ex) when (ex.Message.Contains("no parsable rows", StringComparison.OrdinalIgnoreCase))
+                {
+                    skippedSlices.Add($"aFRR {region.Code} {day:yyyy-MM-dd}");
+                    completedSlices++;
+                    UpdateFetchProgress(completedSlices, totalSlices);
+                    continue;
+                }
+
+                _database.DeleteDayRegionDirection(day, region.Code, dir);
+                if (rows.Count > 0)
+                {
+                    _database.SaveScrapedPoints(rows);
+                }
                 completedSlices++;
                 UpdateFetchProgress(completedSlices, totalSlices);
-                continue;
             }
 
-            if (rows.Count > 0)
+            foreach (var day in missingMfrr)
             {
-                _database.SaveScrapedPoints(rows);
-            }
-            completedSlices++;
-            UpdateFetchProgress(completedSlices, totalSlices);
-        }
+                IReadOnlyList<ScrapedDataPoint> rows;
+                try
+                {
+                    rows = await _service.FetchRawPointsAsync(day, day, new[] { region }, direction, MarketType.Mfrr);
+                }
+                catch (InvalidOperationException ex) when (ex.Message.Contains("no parsable rows", StringComparison.OrdinalIgnoreCase))
+                {
+                    skippedSlices.Add($"mFRR {region.Code} {day:yyyy-MM-dd}");
+                    completedSlices++;
+                    UpdateFetchProgress(completedSlices, totalSlices);
+                    continue;
+                }
 
-        var mfrrExisting = _database.LoadExistingMfrrDayRegionDirection(from, to, new[] { region.Code }, dir);
-        var missingMfrr = allDays.Where(d => !mfrrExisting.Contains((d, region.Code, dir))).ToArray();
-        totalSlices = Math.Max(1, missingAfrr.Length + missingMfrr.Length);
-        UpdateFetchProgress(completedSlices, totalSlices);
-        foreach (var day in missingMfrr)
-        {
-            IReadOnlyList<ScrapedDataPoint> rows;
-            try
-            {
-                rows = await _service.FetchRawPointsAsync(day, day, new[] { region }, direction, MarketType.Mfrr);
-            }
-            catch (InvalidOperationException ex) when (ex.Message.Contains("no parsable rows", StringComparison.OrdinalIgnoreCase))
-            {
-                skippedSlices.Add($"mFRR {region.Code} {day:yyyy-MM-dd}");
+                _database.DeleteMfrrDayRegionDirection(day, region.Code, dir);
+                if (rows.Count > 0)
+                {
+                    _database.SaveMfrrScrapedPoints(rows);
+                }
                 completedSlices++;
                 UpdateFetchProgress(completedSlices, totalSlices);
-                continue;
             }
 
-            if (rows.Count > 0)
-            {
-                _database.SaveMfrrScrapedPoints(rows);
-            }
-            completedSlices++;
-            UpdateFetchProgress(completedSlices, totalSlices);
+            var afrr = _database.LoadDailyMaxPrices(from, to, regionCodes, dir);
+            var mfrr = _database.LoadMfrrDailyMaxPrices(from, to, regionCodes, dir);
+            AfrrMfrrComparisonPlot.Model = CreateMaxBidComparisonPlot(region.Code, afrr, mfrr);
+
+            StatusText.Text = skippedSlices.Count > 0
+                ? BuildSkippedSlicesStatus(skippedSlices)
+                : $"Comparison graph loaded from database. Fetched {totalSlices} missing day-market slice(s).";
         }
-
-        if (skippedSlices.Count > 0)
+        catch (Exception ex)
         {
-            var preview = string.Join(", ", skippedSlices.Take(8));
-            var extra = skippedSlices.Count > 8 ? $" (+{skippedSlices.Count - 8} more)" : string.Empty;
-            StatusText.Text = $"Some day slices were skipped due to missing market rows: {preview}{extra}";
+            StatusText.Text = "Failed.";
+            ErrorMessageTextBox.Text = ex.ToString();
+            MessageBox.Show(ex.Message, "Comparison graph error", MessageBoxButton.OK, MessageBoxImage.Error);
         }
-
-        var afrr = NucsAfrrService.BuildHourlySummariesFromRaw(_database.LoadBySelection(from, to, new[] { region.Code }, dir));
-        var mfrr = NucsAfrrService.BuildHourlySummariesFromRaw(_database.LoadMfrrBySelection(from, to, new[] { region.Code }, dir));
-        AfrrMfrrComparisonPlot.Model = CreateMaxBidComparisonPlot(region.Code, afrr, mfrr);
+        finally
+        {
+            RenderCompareGraphButton.IsEnabled = true;
+        }
     }
 
     private static PlotModel CreateEmptyComparisonPlot()
@@ -446,7 +520,14 @@ public partial class MainWindow : Window
         return model;
     }
 
-    private static PlotModel CreateMaxBidComparisonPlot(string regionCode, IEnumerable<AfrrHourSummary> afrr, IEnumerable<AfrrHourSummary> mfrr)
+    private static string BuildSkippedSlicesStatus(IReadOnlyCollection<string> skippedSlices)
+    {
+        var preview = string.Join(", ", skippedSlices.Take(8));
+        var extra = skippedSlices.Count > 8 ? $" (+{skippedSlices.Count - 8} more)" : string.Empty;
+        return $"Some day slices were skipped due to missing market rows: {preview}{extra}";
+    }
+
+    private static PlotModel CreateMaxBidComparisonPlot(string regionCode, IEnumerable<DailyMaxPricePoint> afrr, IEnumerable<DailyMaxPricePoint> mfrr)
     {
         var model = new PlotModel { Title = $"Max accepted bid price comparison ({regionCode})", IsLegendVisible = true };
         model.Legends.Add(new Legend { LegendTitle = "Market", LegendPosition = LegendPosition.TopRight });
@@ -454,12 +535,12 @@ public partial class MainWindow : Window
         model.Axes.Add(new LinearAxis { Position = AxisPosition.Left, Title = "Max price (€/MW)" });
 
         var afrrLine = new LineSeries { Title = "aFRR Max Bid", StrokeThickness = 2, Color = OxyColors.SteelBlue };
-        foreach (var p in afrr.GroupBy(x => x.Day).Select(g => new { Day = g.Key, Max = g.Max(x => x.PriceMax) }).OrderBy(x => x.Day))
-            afrrLine.Points.Add(new DataPoint(DateTimeAxis.ToDouble(p.Day.ToDateTime(TimeOnly.MinValue)), p.Max));
+        foreach (var p in afrr.OrderBy(x => x.Day))
+            afrrLine.Points.Add(new DataPoint(DateTimeAxis.ToDouble(p.Day.ToDateTime(TimeOnly.MinValue)), p.PriceMax));
 
         var mfrrLine = new LineSeries { Title = "mFRR Max Bid", StrokeThickness = 2, Color = OxyColors.OrangeRed };
-        foreach (var p in mfrr.GroupBy(x => x.Day).Select(g => new { Day = g.Key, Max = g.Max(x => x.PriceMax) }).OrderBy(x => x.Day))
-            mfrrLine.Points.Add(new DataPoint(DateTimeAxis.ToDouble(p.Day.ToDateTime(TimeOnly.MinValue)), p.Max));
+        foreach (var p in mfrr.OrderBy(x => x.Day))
+            mfrrLine.Points.Add(new DataPoint(DateTimeAxis.ToDouble(p.Day.ToDateTime(TimeOnly.MinValue)), p.PriceMax));
 
         model.Series.Add(afrrLine);
         model.Series.Add(mfrrLine);

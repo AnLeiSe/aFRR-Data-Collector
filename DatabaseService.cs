@@ -70,46 +70,19 @@ VALUES($d,$r,$z,$dir,$p,$h1,$h2,$h3,$h4,$h5,$h6,$h7,$h8,$h9,$h10,$h11,$h12,$h13,
 
     private IReadOnlySet<(DateOnly Day, string RegionCode, string Direction)> LoadExistingDayRegionDirection(DateOnly from, DateOnly to, IReadOnlyCollection<string> regionCodes, string direction, string table)
     {
-        var existing = new HashSet<(DateOnly, string, string)>();
-        foreach (var p in LoadBySelection(from, to, regionCodes, direction, table))
-            existing.Add((p.Day, p.RegionCode, p.Direction.ToUpperInvariant()));
-        return existing;
-    }
-
-    
-    public IReadOnlySet<(DateOnly Day, string RegionCode, string Direction)> LoadIncompleteDayRegionDirection(DateOnly from, DateOnly to, IReadOnlyCollection<string> regionCodes, string direction)
-        => LoadIncompleteDayRegionDirection(from, to, regionCodes, direction, "scraped_points");
-
-    private IReadOnlySet<(DateOnly Day, string RegionCode, string Direction)> LoadIncompleteDayRegionDirection(DateOnly from, DateOnly to, IReadOnlyCollection<string> regionCodes, string direction, string table)
-    {
         EnsureCreated();
-        var incomplete = new HashSet<(DateOnly, string, string)>();
-        if (regionCodes.Count == 0) return incomplete;
+        var existing = new HashSet<(DateOnly, string, string)>();
+        var regionCodeSet = regionCodes.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (regionCodes.Count == 0) return existing;
 
         using var c = new SqliteConnection(ConnectionString);
         c.Open();
         var cmd = c.CreateCommand();
-        var placeholders = new List<string>();
-        var i = 0;
-        foreach (var code in regionCodes)
-        {
-            var parameter = $"$r{i++}";
-            placeholders.Add(parameter);
-            cmd.Parameters.AddWithValue(parameter, code);
-        }
-
-        cmd.CommandText = $@"SELECT day, region_code, direction
+        var placeholders = AddRegionParameters(cmd, regionCodes);
+        cmd.CommandText = $@"SELECT DISTINCT day, region_code, bidding_zone, direction
 FROM {table}
 WHERE day >= $from AND day <= $to AND UPPER(direction)=UPPER($direction)
-AND (region_code IN ({string.Join(',', placeholders)}) OR bidding_zone IN ({string.Join(',', placeholders)}))
-AND (
-price_offered = 0 OR
-hour01 = 0 OR hour02 = 0 OR hour03 = 0 OR hour04 = 0 OR hour05 = 0 OR hour06 = 0 OR
-hour07 = 0 OR hour08 = 0 OR hour09 = 0 OR hour10 = 0 OR hour11 = 0 OR hour12 = 0 OR
-hour13 = 0 OR hour14 = 0 OR hour15 = 0 OR hour16 = 0 OR hour17 = 0 OR hour18 = 0 OR
-hour19 = 0 OR hour20 = 0 OR hour21 = 0 OR hour22 = 0 OR hour23 = 0 OR hour24 = 0
-);";
-
+AND (region_code IN ({string.Join(',', placeholders)}) OR bidding_zone IN ({string.Join(',', placeholders)}));";
         cmd.Parameters.AddWithValue("$from", from.ToString("yyyy-MM-dd"));
         cmd.Parameters.AddWithValue("$to", to.ToString("yyyy-MM-dd"));
         cmd.Parameters.AddWithValue("$direction", direction);
@@ -118,14 +91,19 @@ hour19 = 0 OR hour20 = 0 OR hour21 = 0 OR hour22 = 0 OR hour23 = 0 OR hour24 = 0
         while (r.Read())
         {
             if (!DateOnly.TryParse(r.GetString(0), out var day)) continue;
-            incomplete.Add((day, r.GetString(1), r.GetString(2).ToUpperInvariant()));
+            var directionText = r.GetString(3).ToUpperInvariant();
+            if (regionCodeSet.Contains(r.GetString(1))) existing.Add((day, r.GetString(1), directionText));
+            if (regionCodeSet.Contains(r.GetString(2))) existing.Add((day, r.GetString(2), directionText));
         }
 
-        return incomplete;
+        return existing;
     }
+
 
     public void DeleteDayRegionDirection(DateOnly day, string regionCode, string direction)
         => DeleteDayRegionDirection(day, regionCode, direction, "scraped_points");
+    public void DeleteMfrrDayRegionDirection(DateOnly day, string regionCode, string direction)
+        => DeleteDayRegionDirection(day, regionCode, direction, "mfrr_scraped_points");
 
     private void DeleteDayRegionDirection(DateOnly day, string regionCode, string direction, string table)
     {
@@ -155,9 +133,7 @@ AND (region_code = $region OR bidding_zone = $region);";
         if (regionCodes.Count == 0) return list;
         using var c = new SqliteConnection(ConnectionString); c.Open();
         var cmd = c.CreateCommand();
-        var placeholders = new List<string>();
-        var i = 0;
-        foreach (var code in regionCodes) { var parameter = $"$r{i++}"; placeholders.Add(parameter); cmd.Parameters.AddWithValue(parameter, code); }
+        var placeholders = AddRegionParameters(cmd, regionCodes);
         cmd.CommandText = $@"SELECT day,region_code,bidding_zone,direction,price_offered,hour01,hour02,hour03,hour04,hour05,hour06,hour07,hour08,hour09,hour10,hour11,hour12,hour13,hour14,hour15,hour16,hour17,hour18,hour19,hour20,hour21,hour22,hour23,hour24,reference_id
 FROM {table}
 WHERE day >= $from AND day <= $to AND UPPER(direction)=UPPER($direction)
@@ -172,6 +148,55 @@ ORDER BY bidding_zone, day;";
                 Hour01=r.GetDouble(5),Hour02=r.GetDouble(6),Hour03=r.GetDouble(7),Hour04=r.GetDouble(8),Hour05=r.GetDouble(9),Hour06=r.GetDouble(10),Hour07=r.GetDouble(11),Hour08=r.GetDouble(12),Hour09=r.GetDouble(13),Hour10=r.GetDouble(14),Hour11=r.GetDouble(15),Hour12=r.GetDouble(16),Hour13=r.GetDouble(17),Hour14=r.GetDouble(18),Hour15=r.GetDouble(19),Hour16=r.GetDouble(20),Hour17=r.GetDouble(21),Hour18=r.GetDouble(22),Hour19=r.GetDouble(23),Hour20=r.GetDouble(24),Hour21=r.GetDouble(25),Hour22=r.GetDouble(26),Hour23=r.GetDouble(27),Hour24=r.GetDouble(28),ReferenceId=r.GetString(29)});
         }
         return list;
+    }
+
+    public IReadOnlyList<DailyMaxPricePoint> LoadDailyMaxPrices(DateOnly from, DateOnly to, IReadOnlyCollection<string> regionCodes, string direction)
+        => LoadDailyMaxPrices(from, to, regionCodes, direction, "scraped_points");
+    public IReadOnlyList<DailyMaxPricePoint> LoadMfrrDailyMaxPrices(DateOnly from, DateOnly to, IReadOnlyCollection<string> regionCodes, string direction)
+        => LoadDailyMaxPrices(from, to, regionCodes, direction, "mfrr_scraped_points");
+
+    private IReadOnlyList<DailyMaxPricePoint> LoadDailyMaxPrices(DateOnly from, DateOnly to, IReadOnlyCollection<string> regionCodes, string direction, string table)
+    {
+        EnsureCreated();
+        var list = new List<DailyMaxPricePoint>();
+        if (regionCodes.Count == 0) return list;
+
+        using var c = new SqliteConnection(ConnectionString);
+        c.Open();
+        var cmd = c.CreateCommand();
+        var placeholders = AddRegionParameters(cmd, regionCodes);
+        cmd.CommandText = $@"SELECT day, MAX(price_offered)
+FROM {table}
+WHERE day >= $from AND day <= $to AND UPPER(direction)=UPPER($direction)
+AND (region_code IN ({string.Join(',', placeholders)}) OR bidding_zone IN ({string.Join(',', placeholders)}))
+GROUP BY day
+ORDER BY day;";
+        cmd.Parameters.AddWithValue("$from", from.ToString("yyyy-MM-dd"));
+        cmd.Parameters.AddWithValue("$to", to.ToString("yyyy-MM-dd"));
+        cmd.Parameters.AddWithValue("$direction", direction);
+
+        using var r = cmd.ExecuteReader();
+        while (r.Read())
+        {
+            if (!DateOnly.TryParse(r.GetString(0), out var day)) continue;
+            list.Add(new DailyMaxPricePoint(day, r.GetDouble(1)));
+        }
+
+        return list;
+    }
+
+    private static IReadOnlyList<string> AddRegionParameters(SqliteCommand cmd, IReadOnlyCollection<string> regionCodes)
+    {
+        var placeholders = new List<string>();
+        var i = 0;
+        foreach (var code in regionCodes)
+        {
+            var parameter = $"$r{i++}";
+            placeholders.Add(parameter);
+            cmd.Parameters.AddWithValue(parameter, code);
+        }
+
+        return placeholders;
     }
 
     public IReadOnlyList<ScrapedDataPoint> LoadAll() => LoadBySelection(DateOnly.MinValue, DateOnly.MaxValue, new[] { "DK1", "DK2", "FI", "NO1", "NO2", "NO3", "NO4", "NO5", "SE1", "SE2", "SE3", "SE4" }, "UP");
